@@ -7,7 +7,7 @@
     {
       "name": "mcp-feedback",
       "source": "./",
-      "description": "Skills for adding agent feedback to an MCP server, filing feedback, and synthesizing and closing it out."
+      "description": "Skills for adding agent feedback to an MCP server and for reading and closing out what agents report."
     }
   ]
 }

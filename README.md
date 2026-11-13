@@ -4,7 +4,7 @@ Drop-in feedback for MCP servers. Add one call to a server built on the official
 
 - `spec/` is the language-neutral contract: record schema, tool definitions, store contract, conformance vectors, SQL layout. Start at [`spec/SPEC.md`](spec/SPEC.md).
 - `packages/typescript/` is the reference implementation for `@modelcontextprotocol/sdk` (npm name `mcp-feedback`, not yet published).
-- `skills/` holds agent skills for integrating the library, filing feedback, and synthesizing and closing it out. The repo is a plugin marketplace for Claude Code and Codex, so they install directly.
+- `skills/` holds agent skills for the two sides of the loop: maintainers adding feedback to a server, and whoever reads what comes in. The repo is a plugin marketplace for Claude Code and Codex, so they install directly.
 - `examples/express-server/` is a runnable stateless HTTP server using both tool sets.
 
 ## Install the skills
@@ -21,9 +21,8 @@ Codex reads `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` f
 
 | Skill | For |
 | --- | --- |
-| `add-feedback-to-mcp-server` | A coding agent wiring the library into a server. |
-| `submit-feedback` | An agent using a server that has `submit_feedback`. |
-| `synthesize-feedback` | An agent reading, clustering and closing out feedback, over MCP or the CLI. |
+| `add-feedback-to-mcp-server` | The producer side: wire the library into a server, then update the server's own skills, instructions and docs so agents use `submit_feedback`. |
+| `read-feedback` | The consumer side: read, summarise and close out feedback, over the CLI or the MCP reader tools. |
 
 ## Use (TypeScript)
 

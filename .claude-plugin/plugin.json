@@ -1,7 +1,7 @@
 {
   "name": "mcp-feedback",
   "version": "0.1.0",
-  "description": "Agent feedback for MCP servers: skills for dropping the mcp-feedback library into a server, filing feedback through submit_feedback, and synthesizing and closing out what was collected, over MCP reader tools or the mcp-feedback CLI.",
+  "description": "Agent feedback for MCP servers: one skill for adding the mcp-feedback library to a server and updating the server's own skills to use it, and one for reading and closing out what was collected, over the mcp-feedback CLI or MCP reader tools.",
   "author": {
     "name": "krishchow"
   },
