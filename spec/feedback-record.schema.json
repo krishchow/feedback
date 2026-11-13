@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/concoursetech/mcp-feedback/spec/feedback-record.schema.json",
+  "title": "FeedbackRecord",
+  "description": "One piece of feedback as stored and as returned by the reader tools. Spec version 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "created_at",
+    "kind",
+    "title",
+    "body",
+    "severity",
+    "tags",
+    "context",
+    "identity",
+    "server",
+    "status",
+    "triage_note",
+    "triaged_by",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "minLength": 1, "description": "Server-generated. UUIDv7 recommended." },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "kind": { "enum": ["bug", "tool_failure", "feature_request", "friction", "praise", "other"] },
+    "title": { "type": "string", "minLength": 1 },
+    "body": { "type": "string", "minLength": 1 },
+    "severity": { "enum": ["blocker", "major", "minor", "none"] },
+    "tags": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "context": { "$ref": "#/$defs/context" },
+    "identity": { "$ref": "#/$defs/identity" },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] }
+      }
+    },
+    "status": { "enum": ["new", "triaged", "resolved", "dismissed"] },
+    "triage_note": { "type": ["string", "null"] },
+    "triaged_by": { "type": ["string", "null"] },
+    "updated_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "UTC with millisecond precision. The fixed format makes string order equal time order."
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goal": { "type": "string" },
+        "expected": { "type": "string" },
+        "actual": { "type": "string" },
+        "workaround": { "type": "string" },
+        "suggestion": { "type": "string" },
+        "tool_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "arguments_summary": { "type": "string" },
+              "error": { "type": "string" },
+              "is_error": { "type": "boolean" }
+            }
+          }
+        },
+        "repro_steps": { "type": "array", "items": { "type": "string" } },
+        "excerpt": { "type": "string" },
+        "metadata": { "type": "object" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "description": "Stamped by the server from the authenticated request. Never taken from tool input.",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "client_id",
+        "session_id",
+        "token_fingerprint",
+        "scopes",
+        "client_name",
+        "client_version",
+        "user_agent"
+      ],
+      "properties": {
+        "subject": { "type": ["string", "null"] },
+        "client_id": { "type": ["string", "null"] },
+        "session_id": { "type": ["string", "null"] },
+        "token_fingerprint": { "type": ["string", "null"] },
+        "scopes": { "type": "array", "items": { "type": "string" } },
+        "client_name": { "type": ["string", "null"] },
+        "client_version": { "type": ["string", "null"] },
+        "user_agent": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

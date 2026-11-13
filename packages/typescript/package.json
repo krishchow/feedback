@@ -1,0 +1,50 @@
+{
+  "name": "mcp-feedback",
+  "version": "0.1.0",
+  "description": "Drop-in feedback tools for MCP servers: agents submit structured feedback, stamped with the caller's identity, into a pluggable store.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./sqlite": {
+      "types": "./dist/stores/sqlite.d.ts",
+      "default": "./dist/stores/sqlite.js"
+    },
+    "./postgres": {
+      "types": "./dist/stores/postgres.d.ts",
+      "default": "./dist/stores/postgres.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "gen:spec": "UPDATE_SPEC=1 vitest run test/spec.test.ts"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@types/node": "^24.0.0",
+    "ajv": "^8.17.1",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "zod": "3.25.76"
+  }
+}

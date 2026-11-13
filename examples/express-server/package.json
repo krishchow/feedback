@@ -1,0 +1,15 @@
+{
+  "name": "mcp-feedback-example-express",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "express": "^5.1.0",
+    "mcp-feedback": "workspace:*",
+    "zod": "3.25.76"
+  }
+}

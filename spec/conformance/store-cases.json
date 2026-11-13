@@ -1,0 +1,588 @@
+{
+  "spec_version": 1,
+  "records": [
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-7000-8000-000000000001",
+      "created_at": "2026-01-01T00:00:00.000Z",
+      "kind": "bug",
+      "title": "Record 1",
+      "body": "Body of record 1",
+      "severity": "major",
+      "tags": [
+        "ui"
+      ],
+      "context": {
+        "tool_calls": [
+          {
+            "name": "create_meme"
+          }
+        ]
+      },
+      "identity": {
+        "subject": "alice",
+        "client_id": "client-1",
+        "session_id": null,
+        "token_fingerprint": "0123456789abcdef",
+        "scopes": [
+          "feedback:write"
+        ],
+        "client_name": "conformance",
+        "client_version": "1.0.0",
+        "user_agent": null
+      },
+      "server": {
+        "name": "conformance-server",
+        "version": "1.0.0"
+      },
+      "status": "new",
+      "triage_note": null,
+      "triaged_by": null,
+      "updated_at": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-7000-8000-000000000002",
+      "created_at": "2026-01-02T00:00:00.000Z",
+      "kind": "tool_failure",
+      "title": "Record 2",
+      "body": "Body of record 2",
+      "severity": "blocker",
+      "tags": [
+        "timeout",
+        "ui"
+      ],
+      "context": {
+        "goal": "Make a meme — with “quotes”, 'apostrophes' and emoji 🎭",
+        "expected": "A job id",
+        "actual": "504 after 30s",
+        "repro_steps": [
+          "call create_meme",
+          "wait"
+        ],
+        "excerpt": "line one\nline two",
+        "metadata": {
+          "attempt": 2,
+          "nested": {
+            "ok": false,
+            "values": [
+              1,
+              "two",
+              null
+            ]
+          }
+        },
+        "tool_calls": [
+          {
+            "name": "create_meme"
+          },
+          {
+            "name": "list_templates"
+          }
+        ]
+      },
+      "identity": {
+        "subject": "bob",
+        "client_id": "client-1",
+        "session_id": null,
+        "token_fingerprint": "0123456789abcdef",
+        "scopes": [
+          "feedback:write"
+        ],
+        "client_name": "conformance",
+        "client_version": "1.0.0",
+        "user_agent": null
+      },
+      "server": {
+        "name": "conformance-server",
+        "version": "1.0.0"
+      },
+      "status": "new",
+      "triage_note": null,
+      "triaged_by": null,
+      "updated_at": "2026-01-02T00:00:00.000Z"
+    },
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-7000-8000-000000000003",
+      "created_at": "2026-01-03T00:00:00.000Z",
+      "kind": "feature_request",
+      "title": "Record 3",
+      "body": "Body of record 3",
+      "severity": "none",
+      "tags": [],
+      "context": {},
+      "identity": {
+        "subject": "alice",
+        "client_id": "client-1",
+        "session_id": null,
+        "token_fingerprint": "0123456789abcdef",
+        "scopes": [
+          "feedback:write"
+        ],
+        "client_name": "conformance",
+        "client_version": "1.0.0",
+        "user_agent": null
+      },
+      "server": {
+        "name": "conformance-server",
+        "version": "1.0.0"
+      },
+      "status": "new",
+      "triage_note": null,
+      "triaged_by": null,
+      "updated_at": "2026-01-03T00:00:00.000Z"
+    },
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-7000-8000-000000000004",
+      "created_at": "2026-01-03T00:00:00.000Z",
+      "kind": "friction",
+      "title": "Record 4",
+      "body": "Body of record 4",
+      "severity": "minor",
+      "tags": [
+        "docs"
+      ],
+      "context": {
+        "tool_calls": [
+          {
+            "name": "list_templates"
+          }
+        ]
+      },
+      "identity": {
+        "subject": null,
+        "client_id": null,
+        "session_id": null,
+        "token_fingerprint": null,
+        "scopes": [],
+        "client_name": "conformance",
+        "client_version": "1.0.0",
+        "user_agent": null
+      },
+      "server": {
+        "name": "conformance-server",
+        "version": "1.0.0"
+      },
+      "status": "new",
+      "triage_note": null,
+      "triaged_by": null,
+      "updated_at": "2026-01-03T00:00:00.000Z"
+    },
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-7000-8000-000000000005",
+      "created_at": "2026-01-04T00:00:00.000Z",
+      "kind": "praise",
+      "title": "Record 5",
+      "body": "Body of record 5",
+      "severity": "none",
+      "tags": [],
+      "context": {},
+      "identity": {
+        "subject": "bob",
+        "client_id": "client-1",
+        "session_id": null,
+        "token_fingerprint": "0123456789abcdef",
+        "scopes": [
+          "feedback:write"
+        ],
+        "client_name": "conformance",
+        "client_version": "1.0.0",
+        "user_agent": null
+      },
+      "server": {
+        "name": "conformance-server",
+        "version": "1.0.0"
+      },
+      "status": "new",
+      "triage_note": null,
+      "triaged_by": null,
+      "updated_at": "2026-01-04T00:00:00.000Z"
+    },
+    {
+      "schema_version": 1,
+      "id": "00000000-0000-7000-8000-000000000006",
+      "created_at": "2026-01-05T00:00:00.000Z",
+      "kind": "bug",
+      "title": "Record 6",
+      "body": "Body of record 6",
+      "severity": "minor",
+      "tags": [
+        "timeout"
+      ],
+      "context": {
+        "tool_calls": [
+          {
+            "name": "create_meme"
+          }
+        ]
+      },
+      "identity": {
+        "subject": "alice",
+        "client_id": "client-1",
+        "session_id": null,
+        "token_fingerprint": "0123456789abcdef",
+        "scopes": [
+          "feedback:write"
+        ],
+        "client_name": "conformance",
+        "client_version": "1.0.0",
+        "user_agent": null
+      },
+      "server": {
+        "name": "conformance-server",
+        "version": "1.0.0"
+      },
+      "status": "new",
+      "triage_note": null,
+      "triaged_by": null,
+      "updated_at": "2026-01-05T00:00:00.000Z"
+    }
+  ],
+  "cases": [
+    {
+      "name": "lists newest first with id as tiebreak",
+      "op": "list",
+      "filter": {},
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000005",
+          "00000000-0000-7000-8000-000000000004",
+          "00000000-0000-7000-8000-000000000003",
+          "00000000-0000-7000-8000-000000000002",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "paginates across a created_at tie",
+      "op": "list",
+      "filter": {},
+      "limit": 3,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000005",
+          "00000000-0000-7000-8000-000000000004"
+        ],
+        [
+          "00000000-0000-7000-8000-000000000003",
+          "00000000-0000-7000-8000-000000000002",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "paginates one record at a time",
+      "op": "list",
+      "filter": {
+        "subject": "alice"
+      },
+      "limit": 1,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006"
+        ],
+        [
+          "00000000-0000-7000-8000-000000000003"
+        ],
+        [
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "filters by kind",
+      "op": "list",
+      "filter": {
+        "kind": "bug"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "filters by severity",
+      "op": "list",
+      "filter": {
+        "severity": "minor"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000004"
+        ]
+      ]
+    },
+    {
+      "name": "filters by status",
+      "op": "list",
+      "filter": {
+        "status": "resolved"
+      },
+      "limit": 10,
+      "expect_pages": [
+        []
+      ]
+    },
+    {
+      "name": "filters by subject",
+      "op": "list",
+      "filter": {
+        "subject": "alice"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000003",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "filters by tool",
+      "op": "list",
+      "filter": {
+        "tool": "create_meme"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000002",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "filters by tag",
+      "op": "list",
+      "filter": {
+        "tag": "timeout"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000002"
+        ]
+      ]
+    },
+    {
+      "name": "since is inclusive",
+      "op": "list",
+      "filter": {
+        "since": "2026-01-03T00:00:00.000Z"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000005",
+          "00000000-0000-7000-8000-000000000004",
+          "00000000-0000-7000-8000-000000000003"
+        ]
+      ]
+    },
+    {
+      "name": "until is exclusive",
+      "op": "list",
+      "filter": {
+        "until": "2026-01-03T00:00:00.000Z"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000002",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "combines filters with AND",
+      "op": "list",
+      "filter": {
+        "kind": "bug",
+        "tag": "timeout"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006"
+        ]
+      ]
+    },
+    {
+      "name": "round-trips a full record",
+      "op": "get",
+      "id": "00000000-0000-7000-8000-000000000002",
+      "expect_found": true
+    },
+    {
+      "name": "round-trips a record with null identity",
+      "op": "get",
+      "id": "00000000-0000-7000-8000-000000000004",
+      "expect_found": true
+    },
+    {
+      "name": "get resolves null for an unknown id",
+      "op": "get",
+      "id": "00000000-0000-7000-8000-000000000009",
+      "expect_found": false
+    },
+    {
+      "name": "stats over everything",
+      "op": "stats",
+      "filter": {},
+      "expect": {
+        "total": 6,
+        "by_kind": {
+          "bug": 2,
+          "tool_failure": 1,
+          "feature_request": 1,
+          "friction": 1,
+          "praise": 1
+        },
+        "by_status": {
+          "new": 6
+        },
+        "by_severity": {
+          "major": 1,
+          "blocker": 1,
+          "none": 2,
+          "minor": 2
+        },
+        "by_tool": {
+          "create_meme": 3,
+          "list_templates": 2
+        }
+      }
+    },
+    {
+      "name": "stats honours filters",
+      "op": "stats",
+      "filter": {
+        "subject": "alice"
+      },
+      "expect": {
+        "total": 3,
+        "by_kind": {
+          "bug": 2,
+          "feature_request": 1
+        },
+        "by_status": {
+          "new": 3
+        },
+        "by_severity": {
+          "major": 1,
+          "none": 1,
+          "minor": 1
+        },
+        "by_tool": {
+          "create_meme": 2
+        }
+      }
+    },
+    {
+      "name": "stats with no matches is empty",
+      "op": "stats",
+      "filter": {
+        "tag": "nope"
+      },
+      "expect": {
+        "total": 0,
+        "by_kind": {},
+        "by_status": {},
+        "by_severity": {},
+        "by_tool": {}
+      }
+    },
+    {
+      "name": "rejects a duplicate id",
+      "op": "insert_duplicate",
+      "id": "00000000-0000-7000-8000-000000000001"
+    },
+    {
+      "name": "triage sets status and note",
+      "op": "update_triage",
+      "id": "00000000-0000-7000-8000-000000000001",
+      "patch": {
+        "status": "triaged",
+        "triage_note": "Known issue",
+        "triaged_by": "reader",
+        "updated_at": "2026-02-01T00:00:00.000Z"
+      },
+      "expect": {
+        "status": "triaged",
+        "triage_note": "Known issue",
+        "triaged_by": "reader",
+        "updated_at": "2026-02-01T00:00:00.000Z",
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "title": "Record 1"
+      }
+    },
+    {
+      "name": "triaged record is found by status",
+      "op": "list",
+      "filter": {
+        "status": "triaged"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "omitted patch fields are left unchanged",
+      "op": "update_triage",
+      "id": "00000000-0000-7000-8000-000000000001",
+      "patch": {
+        "triaged_by": "reader-2",
+        "updated_at": "2026-02-02T00:00:00.000Z"
+      },
+      "expect": {
+        "status": "triaged",
+        "triage_note": "Known issue",
+        "triaged_by": "reader-2",
+        "updated_at": "2026-02-02T00:00:00.000Z"
+      }
+    },
+    {
+      "name": "a null note clears it",
+      "op": "update_triage",
+      "id": "00000000-0000-7000-8000-000000000001",
+      "patch": {
+        "triage_note": null,
+        "triaged_by": "reader",
+        "updated_at": "2026-02-03T00:00:00.000Z"
+      },
+      "expect": {
+        "status": "triaged",
+        "triage_note": null
+      }
+    },
+    {
+      "name": "triage resolves null for an unknown id",
+      "op": "update_triage",
+      "id": "00000000-0000-7000-8000-000000000009",
+      "patch": {
+        "status": "resolved",
+        "triaged_by": "reader",
+        "updated_at": "2026-02-04T00:00:00.000Z"
+      },
+      "expect": null
+    }
+  ]
+}

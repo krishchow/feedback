@@ -1,0 +1,11 @@
+{
+  "name": "mcp-feedback-workspace",
+  "private": true,
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "build": "pnpm --filter mcp-feedback build",
+    "test": "pnpm --filter mcp-feedback test",
+    "typecheck": "pnpm --filter mcp-feedback typecheck",
+    "gen:spec": "pnpm --filter mcp-feedback gen:spec"
+  }
+}

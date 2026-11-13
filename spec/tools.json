@@ -1,0 +1,365 @@
+{
+  "spec_version": 1,
+  "instructions": "If one of this server's tools fails, behaves unexpectedly, is confusing, or cannot do what the user needed, call submit_feedback once you have handled or been blocked on the user's request. Describe the goal, what you expected, what happened and the tool calls involved, without secrets or personal data, and tell the user you filed it.",
+  "submit_tools": [
+    {
+      "name": "submit_feedback",
+      "title": "Submit feedback",
+      "description": "Report a problem, friction, missing capability or success with this server's tools to its maintainers. Call it when a tool fails or behaves unexpectedly, when the user needed something the tools could not do, or when a tool was confusing to use. Include enough context for someone who was not in this session to act on it. Never include secrets or personal data. The caller's identity is recorded by the server.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "bug",
+              "tool_failure",
+              "feature_request",
+              "friction",
+              "praise",
+              "other"
+            ],
+            "description": "bug: wrong behaviour. tool_failure: a call errored or timed out. feature_request: a missing capability. friction: it worked but was confusing or slow. praise: something worked notably well."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "One-line summary."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What happened and why it matters, in a few sentences."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocker",
+              "major",
+              "minor",
+              "none"
+            ],
+            "description": "blocker: the task could not be completed. major: completed with significant trouble. Defaults to none."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Short labels for grouping."
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "goal": {
+                "type": "string",
+                "description": "What the user was trying to accomplish in this session."
+              },
+              "expected": {
+                "type": "string",
+                "description": "What you expected to happen."
+              },
+              "actual": {
+                "type": "string",
+                "description": "What actually happened."
+              },
+              "workaround": {
+                "type": "string",
+                "description": "How you got past the problem, if you did."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "A concrete change that would have helped."
+              },
+              "tool_calls": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Tool name as it was called."
+                    },
+                    "arguments_summary": {
+                      "type": "string",
+                      "description": "The arguments that mattered, summarised. Leave out secrets and personal data."
+                    },
+                    "error": {
+                      "type": "string",
+                      "description": "Error text or unexpected output the tool returned."
+                    },
+                    "is_error": {
+                      "type": "boolean",
+                      "description": "Whether the call failed."
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "The tool calls involved, in order."
+              },
+              "repro_steps": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Steps that reproduce the problem."
+              },
+              "excerpt": {
+                "type": "string",
+                "description": "A short relevant excerpt of tool output or conversation."
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": {},
+                "description": "Any other structured details."
+              }
+            },
+            "additionalProperties": false,
+            "description": "Session context that lets a reader act without asking you."
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "body"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ],
+  "reader_tools": [
+    {
+      "name": "list_feedback",
+      "title": "List feedback",
+      "description": "List submitted feedback, newest first, with optional filters. Returns full records and a next_cursor when more remain.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "bug",
+              "tool_failure",
+              "feature_request",
+              "friction",
+              "praise",
+              "other"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "triaged",
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocker",
+              "major",
+              "minor",
+              "none"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Only feedback from this caller subject."
+          },
+          "tool": {
+            "type": "string",
+            "description": "Only feedback that involves this tool name."
+          },
+          "tag": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "description": "ISO 8601 timestamp; include feedback created at or after it."
+          },
+          "until": {
+            "type": "string",
+            "description": "ISO 8601 timestamp; include feedback created before it."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Page size. Defaults to 25."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "next_cursor from the previous page."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "get_feedback",
+      "title": "Get feedback",
+      "description": "Fetch one feedback record by id.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "update_feedback_triage",
+      "title": "Update feedback triage",
+      "description": "Set a feedback record's triage status and note. The submitted content and the submitter's identity cannot be changed.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "triaged",
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Triage note. Pass null to clear it."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "feedback_stats",
+      "title": "Feedback statistics",
+      "description": "Count feedback by kind, status, severity and tool, with the same filters as list_feedback.",
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "bug",
+              "tool_failure",
+              "feature_request",
+              "friction",
+              "praise",
+              "other"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "triaged",
+              "resolved",
+              "dismissed"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocker",
+              "major",
+              "minor",
+              "none"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Only feedback from this caller subject."
+          },
+          "tool": {
+            "type": "string",
+            "description": "Only feedback that involves this tool name."
+          },
+          "tag": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "description": "ISO 8601 timestamp; include feedback created at or after it."
+          },
+          "until": {
+            "type": "string",
+            "description": "ISO 8601 timestamp; include feedback created before it."
+          }
+        },
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    }
+  ],
+  "reader_prompts": [
+    {
+      "name": "synthesize_feedback",
+      "title": "Synthesize feedback",
+      "description": "Read the submitted feedback and produce a prioritised summary of themes for the server's maintainers.",
+      "arguments": [
+        {
+          "name": "since",
+          "description": "Only consider feedback created at or after this ISO 8601 timestamp.",
+          "required": false
+        },
+        {
+          "name": "focus",
+          "description": "A tool, tag or theme to concentrate on.",
+          "required": false
+        }
+      ]
+    }
+  ]
+}
