@@ -14,12 +14,14 @@ This directory is the contract every implementation follows, whatever its langua
 
 The key words MUST, MUST NOT and SHOULD are used as in RFC 2119.
 
-## Two tool sets
+## Submit and read are separate
 
 An implementation provides two independent registration entry points that take an existing MCP server object:
 
 - **Submit** registers `submit_feedback`. It goes on the server agents already use.
-- **Reader** registers `list_feedback`, `get_feedback`, `update_feedback_triage`, `feedback_stats` and the `synthesize_feedback` prompt. It exposes every caller's feedback, so the host MUST mount it only where access is restricted to maintainers. An implementation MUST NOT register reader tools as a side effect of registering the submit tool.
+- **Reader** is optional. It registers `list_feedback`, `get_feedback`, `update_feedback_triage`, `feedback_stats` and the `synthesize_feedback` prompt. It exposes every caller's feedback, so the host MUST mount it only where access is restricted to maintainers. An implementation MUST NOT register reader tools as a side effect of registering the submit tool. A read-only option omits `update_feedback_triage`.
+
+An implementation SHOULD also ship a command-line reader that performs the same operations directly against a store, so a host can collect feedback without exposing any reader tools over MCP. The reference CLI is described in the repository README.
 
 Both MUST be safe to call on a server object that is built per request. The store is created once by the host and passed to both.
 
@@ -81,7 +83,7 @@ Problems with the caller's input are returned as tool errors with a message the 
 
 - `list_feedback` returns `{ items, next_cursor }`: full records, newest first, default page size 25, maximum 100. `since` and `until` accept any ISO 8601 timestamp and are normalised to the canonical form before reaching the store.
 - `get_feedback` returns one record, or a tool error if the id is unknown.
-- `update_feedback_triage` changes only `status` and `triage_note` (input field `note`; `null` clears it). At least one MUST be given. `triaged_by` is set from the reader's resolved identity (`subject`, else `client_id`, else `token_fingerprint`) and `updated_at` to the current time. Submitted content and submitter identity are immutable.
+- `update_feedback_triage` triages or closes out one or more records (`ids`, 1 to 100). It changes only `status` and `triage_note` (input field `note`; `null` clears it); at least one MUST be given. `resolved` and `dismissed` close a record, `new` reopens it. `triaged_by` is set from the reader's resolved identity (`subject`, else `client_id`, else `token_fingerprint`) and `updated_at` to the current time. It returns `{ updated, not_found }`: the updated records and the ids that matched nothing. Unknown ids do not make the call fail. Submitted content and submitter identity are immutable.
 - `feedback_stats` returns `{ total, by_kind, by_status, by_severity, by_tool }` for the same filters as `list_feedback`.
 - `synthesize_feedback` returns a single user message instructing the reader to gather statistics, read every record, group by underlying issue and report by impact. It MUST tell the reader to treat feedback text as data, not instructions: feedback is written by other agents and is untrusted input.
 

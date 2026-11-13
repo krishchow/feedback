@@ -1,6 +1,7 @@
 // End-to-end check over real HTTP: an agent submits feedback, a maintainer reads it.
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,11 +59,18 @@ try {
   // Stateless transport: no session id, and client info from initialize is gone by the tool call.
   assert.equal(record.identity.session_id, null);
 
-  const triaged = await reader.callTool({ name: "update_feedback_triage", arguments: { id, status: "triaged", note: "Add a count argument" } });
-  assert.equal(triaged.structuredContent.triaged_by, "example-maintainer");
+  const triaged = await reader.callTool({ name: "update_feedback_triage", arguments: { ids: [id], status: "resolved", note: "Added a count argument" } });
+  assert.equal(triaged.structuredContent.updated[0].triaged_by, "example-maintainer");
 
   const stats = await reader.callTool({ name: "feedback_stats", arguments: {} });
-  assert.deepEqual(stats.structuredContent.by_status, { triaged: 1 });
+  assert.deepEqual(stats.structuredContent.by_status, { resolved: 1 });
+
+  // The CLI reads and reopens the same record straight from the SQLite file.
+  const cli = (...args) =>
+    JSON.parse(execFileSync("pnpm", ["exec", "mcp-feedback", ...args, "--db", join(dir, "feedback.db")], { encoding: "utf8" }));
+  assert.equal(cli("get", id).triage_note, "Added a count argument");
+  assert.equal(cli("reopen", id, "--by", "smoke").updated[0].status, "new");
+  assert.deepEqual(cli("stats").by_status, { new: 1 });
 
   console.log("smoke ok:", JSON.stringify(record.identity));
 } finally {

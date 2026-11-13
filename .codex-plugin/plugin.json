@@ -1,0 +1,27 @@
+{
+  "name": "mcp-feedback",
+  "version": "0.1.0",
+  "description": "Agent feedback for MCP servers: skills for dropping the mcp-feedback library into a server, filing feedback through submit_feedback, and synthesizing and closing out what was collected, over MCP reader tools or the mcp-feedback CLI.",
+  "author": {
+    "name": "krishchow"
+  },
+  "homepage": "https://github.com/krishchow/feedback",
+  "repository": "https://github.com/krishchow/feedback",
+  "license": "MIT",
+  "keywords": ["mcp", "feedback", "agents", "skills"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "mcp-feedback",
+    "shortDescription": "Collect and act on agent feedback for MCP servers",
+    "longDescription": "Adds a feedback loop to MCP servers. Agents using a server file structured feedback about failures, friction and missing capabilities; each report is tied to the authenticated caller and stored in SQLite, Postgres or a store you write. These skills cover integrating the library into a server, filing good feedback, and reading, clustering and closing out what was collected.",
+    "developerName": "krishchow",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/krishchow/feedback",
+    "defaultPrompt": [
+      "Add agent feedback to this MCP server",
+      "Summarize the feedback agents filed this week",
+      "Close out the feedback we fixed in the last release"
+    ]
+  }
+}

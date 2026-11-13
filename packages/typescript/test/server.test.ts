@@ -217,7 +217,6 @@ describe("reader tools", () => {
     expect((await call(client, "list_feedback", { cursor: "garbage" })).text).toMatch(/cursor is not a value/);
     expect((await call(client, "list_feedback", { since: "yesterday" })).text).toMatch(/since is not a valid ISO 8601/);
     expect((await call(client, "get_feedback", { id: "missing" })).text).toBe("No feedback with id missing.");
-    expect((await call(client, "update_feedback_triage", { id: "missing", status: "resolved" })).isError).toBe(true);
   });
 
   it("gets a record and reports stats", async () => {
@@ -238,10 +237,12 @@ describe("reader tools", () => {
     const before = (await store.get(ids[0]!))!;
     const client = await reader(store, { ...auth, extra: { sub: "triager" } });
 
-    const updated = await call(client, "update_feedback_triage", { id: ids[0], status: "resolved", note: "Fixed in 1.2" });
-    expect(updated.data).toMatchObject({ status: "resolved", triage_note: "Fixed in 1.2", triaged_by: "triager" });
-    expect(updated.data!.updated_at >= before.updated_at).toBe(true);
-    expect({ ...updated.data, status: 0, triage_note: 0, triaged_by: 0, updated_at: 0 }).toEqual({
+    const response = await call(client, "update_feedback_triage", { ids: [ids[0]], status: "resolved", note: "Fixed in 1.2" });
+    const updated = response.data!.updated[0];
+    expect(response.data!.not_found).toEqual([]);
+    expect(updated).toMatchObject({ status: "resolved", triage_note: "Fixed in 1.2", triaged_by: "triager" });
+    expect(updated.updated_at >= before.updated_at).toBe(true);
+    expect({ ...updated, status: 0, triage_note: 0, triaged_by: 0, updated_at: 0 }).toEqual({
       ...before,
       status: 0,
       triage_note: 0,
@@ -249,10 +250,36 @@ describe("reader tools", () => {
       updated_at: 0,
     });
 
-    const cleared = await call(client, "update_feedback_triage", { id: ids[0], note: null });
-    expect(cleared.data).toMatchObject({ status: "resolved", triage_note: null });
+    const cleared = await call(client, "update_feedback_triage", { ids: [ids[0]], note: null });
+    expect(cleared.data!.updated[0]).toMatchObject({ status: "resolved", triage_note: null });
 
-    expect((await call(client, "update_feedback_triage", { id: ids[0] })).text).toBe("Provide a status, a note, or both.");
+    expect((await call(client, "update_feedback_triage", { ids: [ids[0]] })).text).toBe("Provide a status, a note, or both.");
+  });
+
+  it("closes out several records at once and reports unknown ids", async () => {
+    const { store, ids } = await seeded();
+    const client = await reader(store, auth);
+    const response = await call(client, "update_feedback_triage", {
+      ids: [ids[0], ids[1], "missing"],
+      status: "dismissed",
+      note: "Duplicate of the queue timeout",
+    });
+    expect(response.isError).toBe(false);
+    expect(response.data!.updated.map((record: any) => record.id)).toEqual([ids[0], ids[1]]);
+    expect(response.data!.not_found).toEqual(["missing"]);
+    expect((await store.stats({})).by_status).toEqual({ dismissed: 2, new: 1 });
+
+    await call(client, "update_feedback_triage", { ids: [ids[0]], status: "new" });
+    expect((await store.get(ids[0]!))!.status).toBe("new");
+  });
+
+  it("omits the triage tool when readOnly", async () => {
+    const client = await connect((server) => registerFeedbackReader(server, { store: memoryStore(), readOnly: true }));
+    expect((await client.listTools()).tools.map((tool) => tool.name).sort()).toEqual([
+      "feedback_stats",
+      "get_feedback",
+      "list_feedback",
+    ]);
   });
 
   it("keeps reader tools off the submit server and vice versa", async () => {

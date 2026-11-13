@@ -65,8 +65,11 @@ export const getFeedbackShape = {
 };
 
 export const updateFeedbackTriageShape = {
-  id: z.string().min(1),
-  status: z.enum(FEEDBACK_STATUSES).optional(),
+  ids: z.array(z.string().min(1)).min(1).max(100).describe("The records to update; pass several to close out a group at once."),
+  status: z
+    .enum(FEEDBACK_STATUSES)
+    .optional()
+    .describe("triaged: acknowledged, still open. resolved: fixed or delivered. dismissed: will not act. new: reopen."),
   note: z.string().nullable().optional().describe("Triage note. Pass null to clear it."),
 };
 
@@ -106,7 +109,8 @@ export const READER_TOOLS = {
     name: "update_feedback_triage",
     title: "Update feedback triage",
     description:
-      "Set a feedback record's triage status and note. The submitted content and the submitter's identity cannot be changed.",
+      "Triage or close out feedback: set the status and a note on one or more records. Use resolved or dismissed to close, " +
+      "new to reopen. Returns the updated records and any ids that were not found. Submitted content and submitter identity cannot be changed.",
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   stats: {

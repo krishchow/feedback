@@ -240,7 +240,7 @@
     {
       "name": "update_feedback_triage",
       "title": "Update feedback triage",
-      "description": "Set a feedback record's triage status and note. The submitted content and the submitter's identity cannot be changed.",
+      "description": "Triage or close out feedback: set the status and a note on one or more records. Use resolved or dismissed to close, new to reopen. Returns the updated records and any ids that were not found. Submitted content and submitter identity cannot be changed.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -250,9 +250,15 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "The records to update; pass several to close out a group at once."
           },
           "status": {
             "type": "string",
@@ -261,7 +267,8 @@
               "triaged",
               "resolved",
               "dismissed"
-            ]
+            ],
+            "description": "triaged: acknowledged, still open. resolved: fixed or delivered. dismissed: will not act. new: reopen."
           },
           "note": {
             "type": [
@@ -272,7 +279,7 @@
           }
         },
         "required": [
-          "id"
+          "ids"
         ],
         "additionalProperties": false,
         "$schema": "http://json-schema.org/draft-07/schema#"

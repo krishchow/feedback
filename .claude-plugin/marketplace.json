@@ -1,0 +1,13 @@
+{
+  "name": "mcp-feedback",
+  "owner": {
+    "name": "krishchow"
+  },
+  "plugins": [
+    {
+      "name": "mcp-feedback",
+      "source": "./",
+      "description": "Skills for adding agent feedback to an MCP server, filing feedback, and synthesizing and closing it out."
+    }
+  ]
+}

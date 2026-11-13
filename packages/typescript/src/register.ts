@@ -5,6 +5,7 @@ import {
   type FeedbackRequestExtra,
   type ResolveIdentity,
 } from "./identity.js";
+import { FeedbackInputError, listPage, normalizeFilter, triageMany } from "./reader.js";
 import type { FeedbackStore } from "./store.js";
 import {
   READER_TOOLS,
@@ -21,7 +22,6 @@ import {
 import {
   FEEDBACK_SCHEMA_VERSION,
   type FeedbackContext,
-  type FeedbackFilter,
   type FeedbackIdentity,
   type FeedbackRecord,
   type FeedbackServerInfo,
@@ -69,10 +69,11 @@ export interface FeedbackOptions extends SharedOptions {
   serverInfo?: Partial<FeedbackServerInfo>;
 }
 
-export type FeedbackReaderOptions = SharedOptions;
+export interface FeedbackReaderOptions extends SharedOptions {
+  /** Leave out `update_feedback_triage`, so the reader can look but not change anything. */
+  readOnly?: boolean;
+}
 
-/** A problem with the caller's input; its message is safe to return to the agent. */
-export class FeedbackInputError extends Error {}
 
 type SubmitInput = {
   kind: FeedbackRecord["kind"];
@@ -128,29 +129,6 @@ function checkLimits(input: SubmitInput, limits: FeedbackLimits): void {
       throw new FeedbackInputError(`context.metadata is ${bytes} bytes as JSON; the limit is ${limits.metadataBytes}.`);
     }
   }
-}
-
-function normalizeTimestamp(label: string, value: string | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  const time = Date.parse(value);
-  if (Number.isNaN(time)) throw new FeedbackInputError(`${label} is not a valid ISO 8601 timestamp.`);
-  return new Date(time).toISOString();
-}
-
-function normalizeFilter(args: FeedbackFilter): FeedbackFilter {
-  // JSON round trip drops keys whose value is undefined.
-  return JSON.parse(
-    JSON.stringify({
-      kind: args.kind,
-      status: args.status,
-      severity: args.severity,
-      subject: args.subject,
-      tool: args.tool,
-      tag: args.tag,
-      since: normalizeTimestamp("since", args.since),
-      until: normalizeTimestamp("until", args.until),
-    }),
-  ) as FeedbackFilter;
 }
 
 function result(value: Record<string, unknown>) {
@@ -261,15 +239,7 @@ export function registerFeedbackReader(server: McpServer, options: FeedbackReade
     config(READER_TOOLS.list, listFeedbackShape),
     (args) =>
       guard(names.list, async () => {
-        let page;
-        try {
-          page = await store.list({ ...normalizeFilter(args), limit: args.limit ?? 25, cursor: args.cursor });
-        } catch (error) {
-          if (error instanceof Error && error.message === "Invalid feedback cursor") {
-            throw new FeedbackInputError("cursor is not a value returned by list_feedback.");
-          }
-          throw error;
-        }
+        const page = await listPage(store, args);
         return { ...page };
       }),
   );
@@ -282,25 +252,19 @@ export function registerFeedbackReader(server: McpServer, options: FeedbackReade
     }),
   );
 
-  server.registerTool(
-    names.triage,
-    config(READER_TOOLS.triage, updateFeedbackTriageShape),
-    (args, extra) =>
+  if (!options.readOnly) {
+    server.registerTool(names.triage, config(READER_TOOLS.triage, updateFeedbackTriageShape), (args, extra) =>
       guard(names.triage, async () => {
-        if (args.status === undefined && args.note === undefined) {
-          throw new FeedbackInputError("Provide a status, a note, or both.");
-        }
         const reader = await identify(extra);
-        const record = await store.updateTriage(args.id, {
+        const outcome = await triageMany(store, args.ids, {
           status: args.status,
-          triage_note: args.note,
-          triaged_by: reader.subject ?? reader.client_id ?? reader.token_fingerprint,
-          updated_at: new Date().toISOString(),
+          note: args.note,
+          by: reader.subject ?? reader.client_id ?? reader.token_fingerprint,
         });
-        if (!record) throw new FeedbackInputError(`No feedback with id ${args.id}.`);
-        return { ...record };
+        return { ...outcome };
       }),
-  );
+    );
+  }
 
   server.registerTool(names.stats, config(READER_TOOLS.stats, feedbackStatsShape), (args) =>
     guard(names.stats, async () => ({ ...(await store.stats(normalizeFilter(args))) })),

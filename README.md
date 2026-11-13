@@ -4,8 +4,26 @@ Drop-in feedback for MCP servers. Add one call to a server built on the official
 
 - `spec/` is the language-neutral contract: record schema, tool definitions, store contract, conformance vectors, SQL layout. Start at [`spec/SPEC.md`](spec/SPEC.md).
 - `packages/typescript/` is the reference implementation for `@modelcontextprotocol/sdk` (npm name `mcp-feedback`, not yet published).
-- `skills/` holds agent skills for filing and for synthesizing feedback.
+- `skills/` holds agent skills for integrating the library, filing feedback, and synthesizing and closing it out. The repo is a plugin marketplace for Claude Code and Codex, so they install directly.
 - `examples/express-server/` is a runnable stateless HTTP server using both tool sets.
+
+## Install the skills
+
+Claude Code:
+
+```
+/plugin install mcp-feedback --marketplace krishchow/feedback
+```
+
+On older versions: `/plugin marketplace add krishchow/feedback`, then `/plugin install mcp-feedback@mcp-feedback`.
+
+Codex reads `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` from this repo.
+
+| Skill | For |
+| --- | --- |
+| `add-feedback-to-mcp-server` | A coding agent wiring the library into a server. |
+| `submit-feedback` | An agent using a server that has `submit_feedback`. |
+| `synthesize-feedback` | An agent reading, clustering and closing out feedback, over MCP or the CLI. |
 
 ## Use (TypeScript)
 
@@ -18,9 +36,25 @@ const store = sqliteStore({ path: "./feedback.db" }); // once per process
 // On the server agents use:
 registerFeedback(server, { store });
 
-// On a separate, maintainer-only server or endpoint:
+// Optional. On a separate, maintainer-only server or endpoint:
 registerFeedbackReader(adminServer, { store });
 ```
+
+The reader tools list, fetch and count feedback, and `update_feedback_triage` closes out, dismisses or reopens one or many records with a note. Pass `readOnly: true` to leave that tool out. If you would rather not expose reader tools at all, use the CLI.
+
+### CLI
+
+```sh
+mcp-feedback stats --db ./feedback.db
+mcp-feedback list --status new --tool create_meme --text
+mcp-feedback export --since 2026-11-01 > feedback.jsonl
+mcp-feedback get <id> --text
+mcp-feedback close <id> <id> --note "Fixed in 1.2"
+mcp-feedback close <id> --dismiss --note "Working as intended"
+mcp-feedback reopen <id>
+```
+
+Use `--postgres <url>` instead of `--db` for Postgres (needs the `pg` package). `MCP_FEEDBACK_DB` and `MCP_FEEDBACK_POSTGRES_URL` set the store from the environment. Output is JSON unless you pass `--text`. Exit code 2 means bad input; 1 means a failure or an id that was not found.
 
 Append `feedbackInstructions` to your server's `instructions` so agents know when to file. If you publish a tool catalog, merge in `feedbackToolCatalog`.
 

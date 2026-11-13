@@ -1,0 +1,22 @@
+{
+  "name": "mcp-feedback",
+  "interface": {
+    "displayName": "mcp-feedback"
+  },
+  "plugins": [
+    {
+      "name": "mcp-feedback",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Developer Tools",
+      "interface": {
+        "displayName": "mcp-feedback — agent feedback for MCP servers"
+      }
+    }
+  ]
+}
