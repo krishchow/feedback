@@ -2,7 +2,18 @@
   "name": "mcp-feedback",
   "version": "0.1.0",
   "description": "Drop-in feedback tools for MCP servers: agents submit structured feedback, stamped with the caller's identity, into a pluggable store.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "feedback",
+    "agents",
+    "llm"
+  ],
   "license": "MIT",
+  "homepage": "https://github.com/krishchow/feedback#readme",
+  "bugs": {
+    "url": "https://github.com/krishchow/feedback/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/krishchow/feedback.git",
@@ -16,7 +27,9 @@
     "mcp-feedback": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "exports": {
     ".": {
@@ -40,7 +53,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "gen:spec": "UPDATE_SPEC=1 vitest run test/spec.test.ts"
+    "gen:spec": "UPDATE_SPEC=1 vitest run test/spec.test.ts",
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",
