@@ -119,6 +119,15 @@ describe("submit_feedback", () => {
     expect((await store.stats({})).total).toBe(0);
   });
 
+  it("keys token fingerprints when tokenFingerprintKey is set", async () => {
+    const store = memoryStore();
+    const response = await call(await submitter(store, { tokenFingerprintKey: "server-secret" }), "submit_feedback", submission);
+    const fingerprint = (await store.get(response.data!.id))!.identity.token_fingerprint;
+    expect(fingerprint).toBe(fingerprintToken(TOKEN, "server-secret"));
+    expect(fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(fingerprint).not.toBe(fingerprintToken(TOKEN));
+  });
+
   it("lets resolveIdentity override the defaults", async () => {
     const store = memoryStore();
     const client = await submitter(store, {

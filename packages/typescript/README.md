@@ -37,7 +37,7 @@ mcp-feedback close <id> --dismiss --note "Working as intended"
 mcp-feedback reopen <id>
 ```
 
-Use `--postgres <url>` instead of `--db` for Postgres (needs the `pg` package). `MCP_FEEDBACK_DB` and `MCP_FEEDBACK_POSTGRES_URL` set the store from the environment. Output is JSON unless you pass `--text`. Exit code 2 means bad input; 1 means a failure or an id that was not found.
+Use `--postgres <url>` instead of `--db` for Postgres. That needs the `pg` package, so run the copy installed alongside your server (`npm exec mcp-feedback`, or `pnpm --filter <package> exec mcp-feedback` in a monorepo) rather than a fresh `npx` download. `MCP_FEEDBACK_DB` and `MCP_FEEDBACK_POSTGRES_URL` set the store from the environment. Output is JSON unless you pass `--text`. Exit code 2 means bad input; 1 means a failure or an id that was not found.
 
 Append `feedbackInstructions` to your server's `instructions` so agents know when to file. If you publish a tool catalog, merge in `feedbackToolCatalog`.
 
@@ -66,6 +66,7 @@ registerFeedback(server, {
 | `limits` | Override size limits (see the spec for defaults). |
 | `toolPrefix` | Prefix for tool and prompt names. |
 | `serverInfo` | Server name and version to record; defaults to the server's own. |
+| `tokenFingerprintKey` | Secret that makes token fingerprints an HMAC. Recommended; keep it stable and the same on every instance. |
 | `onError` | Receives storage errors, which are hidden from the agent. |
 
 ## Stores
@@ -73,7 +74,8 @@ registerFeedback(server, {
 | Store | Import | Notes |
 | --- | --- | --- |
 | SQLite | `mcp-feedback/sqlite` | Default. Uses Node's built-in `node:sqlite`, so there is no native module to install. On Node versions where that module is still experimental, Node prints a warning. |
-| Postgres | `mcp-feedback/postgres` | `postgresStore({ client: pool })` with any client that has `query(text, params)`, such as a `pg.Pool`. Pass `migrate: false` if you create the table yourself from `spec/sql/postgres.sql`. |
+| Postgres | `mcp-feedback/postgres` | `postgresStore({ client: pool })` with any client that has `query(text, params)`, such as a `pg.Pool`. Timestamps are `TIMESTAMPTZ`. Pass `migrate: false` if the table is created by your own migrations. |
+| Drizzle schema | `mcp-feedback/drizzle` | `mcpFeedbackTable` (or `feedbackTable(name)`) to export from your Drizzle schema, so `drizzle-kit` creates the table and never drops it. Use with `postgresStore({ client: pool, migrate: false })`. Tests keep it identical to `spec/sql/postgres.sql`. |
 | Memory | `mcp-feedback` | `memoryStore()`, for tests. |
 
 To write your own, implement `FeedbackStore` and check it with the conformance suite:

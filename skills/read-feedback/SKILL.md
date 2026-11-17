@@ -37,7 +37,7 @@ When asked to review or summarise the feedback as a whole, the job is to tell th
 4. For each group work out:
    - what is wrong or wanted, in one sentence
    - the tools involved
-   - the number of records and of distinct submitters (`identity.subject`, else `client_id`, else `token_fingerprint`)
+   - the number of records and of distinct submitters (`identity.subject`, else `client_id`, else `token_fingerprint`). If every record shares one `client_id` and fingerprint with no `subject`, the server uses a shared credential: report submitters as unknown rather than one
    - the highest severity
    - one representative record id
    - a concrete recommended change

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type { FeedbackIdentity } from "./types.js";
 
 /**
@@ -32,21 +32,29 @@ export type ResolveIdentity = (
   defaults: FeedbackIdentity,
 ) => Partial<FeedbackIdentity> | Promise<Partial<FeedbackIdentity>>;
 
-/** A short, non-reversible label for a bearer token. The token itself is never stored. */
-export function fingerprintToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+/**
+ * A short, non-reversible label for a bearer token. The token itself is never stored.
+ * With a key it is an HMAC, so a leaked table cannot be used to test guesses of weak tokens.
+ */
+export function fingerprintToken(token: string, key?: string): string {
+  const hash = key ? createHmac("sha256", key) : createHash("sha256");
+  return hash.update(token).digest("hex").slice(0, 16);
 }
 
 const stringOrNull = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
-export function defaultResolveIdentity(extra: FeedbackRequestExtra, client?: ClientImplementation): FeedbackIdentity {
+export function defaultResolveIdentity(
+  extra: FeedbackRequestExtra,
+  client?: ClientImplementation,
+  fingerprintKey?: string,
+): FeedbackIdentity {
   const auth = extra.authInfo;
   const userAgent = extra.requestInfo?.headers?.["user-agent"];
   return {
     subject: stringOrNull(auth?.extra?.sub) ?? stringOrNull(auth?.extra?.subject),
     client_id: stringOrNull(auth?.clientId),
     session_id: stringOrNull(extra.sessionId),
-    token_fingerprint: auth?.token ? fingerprintToken(auth.token) : null,
+    token_fingerprint: auth?.token ? fingerprintToken(auth.token, fingerprintKey) : null,
     scopes: [...(auth?.scopes ?? [])],
     client_name: stringOrNull(client?.name),
     client_version: stringOrNull(client?.version),

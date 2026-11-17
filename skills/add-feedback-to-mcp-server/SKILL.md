@@ -29,19 +29,25 @@ npm install mcp-feedback
 
 `pg` is needed only for the CLI's `--postgres` flag; the Postgres store itself takes the pool the server already has.
 
+If the install is refused because the release is too new (pnpm's `minimumReleaseAge`, or a similar policy), ask the user before adding `mcp-feedback` to the exclusion list; do not pin an older version to get around it.
+
 ### 2. Make identity available
 
 In the HTTP auth middleware, after the token is verified:
 
 ```ts
-req.auth = { token, clientId: "<client or tenant id>", scopes: [], extra: { sub: "<user id if known>" } };
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+
+(req as Request & { auth?: AuthInfo }).auth = { token, clientId: "<client or tenant id>", scopes: [], extra: { sub: "<user id if known>" } };
 ```
+
+Express's `Request` type has no `auth` field, hence the cast. If every caller shares one credential, records cannot tell callers apart: say so in the server's docs, and supply `subject` through `resolveIdentity` if the server knows who is calling some other way.
 
 Stdio servers have no per-request auth; pass `resolveIdentity` to supply a subject (for example from an environment variable) or accept null identity.
 
 ### 3. Create the store once
 
-At module level, never inside a request handler:
+At module level, never inside a request handler. Put it in its own small module (for example `feedback.ts`) that the MCP server imports: test harnesses that stub the database can then swap in `memoryStore()` for that one module.
 
 ```ts
 import { sqliteStore } from "mcp-feedback/sqlite";
@@ -53,15 +59,31 @@ import { postgresStore } from "mcp-feedback/postgres";
 const feedbackStore = postgresStore({ client: pool });
 ```
 
-Stores open lazily, so this does not touch the database at import. If the project manages its schema with migrations or an ORM, add the table from `spec/sql/postgres.sql` there and pass `migrate: false`; otherwise a schema-sync tool may try to drop a table it does not know.
+Stores open lazily, so this does not touch the database at import. If the project manages its schema with migrations or an ORM, the table must be part of that schema and the store must run with `migrate: false`; otherwise a schema-sync tool may try to drop a table it does not know.
+
+- **Drizzle:** export the package's table from the project's schema instead of copying it; it is kept identical to the store's own DDL.
+
+  ```ts
+  export { mcpFeedbackTable } from "mcp-feedback/drizzle"; // or feedbackTable("custom_name")
+  ```
+
+- **Anything else:** add the DDL from `spec/sql/postgres.sql` as a migration.
 
 ### 4. Register the submit tool
 
 ```ts
 import { registerFeedback, feedbackInstructions, feedbackToolCatalog } from "mcp-feedback";
 
-registerFeedback(server, { store: feedbackStore, onError: (error) => logger.warn({ error }, "feedback failed") });
+registerFeedback(server, {
+  store: feedbackStore,
+  serverInfo: { name: "<server name>", version: "<server version>" },
+  tokenFingerprintKey: process.env.FEEDBACK_FINGERPRINT_KEY,
+  onError: (error) => logger.warn({ error }, "feedback failed"),
+});
 ```
+
+- `serverInfo` is optional (it defaults to what the server was constructed with), but passing it avoids relying on SDK internals.
+- `tokenFingerprintKey` makes token fingerprints an HMAC, so a leaked feedback table cannot be used to test guesses of a weak token. Add it as a server secret, keep it stable, and use the same value on every instance.
 
 - Merge `feedbackToolCatalog` into any hand-written tool list, and update tests that assert tool names.
 - Set `requireIdentity: true` if anonymous feedback should be refused.
@@ -83,7 +105,7 @@ If the server publishes no skill, the `instructions` string is enough; do not cr
 
 Ask the user if they have not said. The options combine.
 
-- **CLI only.** Nothing more to add to the server. Maintainers run `npx mcp-feedback stats --db ./feedback.db` (or `--postgres "$DATABASE_URL"`), and `list`, `export`, `get`, `close`, `reopen`, `triage`.
+- **CLI only.** Nothing more to add to the server. Maintainers run the copy installed with the server, for example `npm exec mcp-feedback -- stats --db ./feedback.db` or, in a pnpm monorepo, `pnpm --filter <server package> exec mcp-feedback stats --postgres "$DATABASE_URL"`; then `list`, `export`, `get`, `close`, `reopen`, `triage`. Bare `npx mcp-feedback` from elsewhere downloads a fresh copy without `pg`, so `--postgres` fails there.
 - **MCP reader tools.** Mount `registerFeedbackReader(adminServer, { store: feedbackStore })` on a separate endpoint with its own credential. It exposes every caller's feedback, so never register it on the server ordinary agents connect to. Pass `readOnly: true` to leave out the tool that changes status.
 
 The people and agents who read it use this plugin's `read-feedback` skill.

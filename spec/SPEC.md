@@ -48,7 +48,7 @@ Identity ties a record to the authenticated request. It is resolved in two steps
    | `subject` | `sub` (or `subject`) in the auth info's extra data |
    | `client_id` | auth info client id |
    | `scopes` | auth info scopes |
-   | `token_fingerprint` | first 16 hex characters of SHA-256 of the access token |
+   | `token_fingerprint` | first 16 hex characters of HMAC-SHA-256 of the access token under a host-configured key; SHA-256 when no key is configured |
    | `session_id` | transport session id |
    | `client_name`, `client_version` | client info from `initialize` |
    | `user_agent` | `User-Agent` request header |
@@ -56,9 +56,11 @@ Identity ties a record to the authenticated request. It is resolved in two steps
    Anything unavailable is `null` (`[]` for scopes).
 2. An optional host-supplied resolver receives the request context and the defaults; fields it returns replace the defaults.
 
-The access token itself MUST NOT be stored. When the host sets "require identity", a submission whose resolved identity has neither `subject` nor `token_fingerprint` MUST be refused and nothing stored.
+The access token itself MUST NOT be stored. An implementation MUST let the host configure the fingerprint key, and hosts SHOULD set one: an unkeyed fingerprint lets anyone holding the table test guesses of a weak token offline. Every writer to one store must use the same key, or the same token yields different fingerprints. When the host sets "require identity", a submission whose resolved identity has neither `subject` nor `token_fingerprint` MUST be refused and nothing stored.
 
 Stateless HTTP servers have no session id and do not retain client info between requests, so those fields are `null` there. That is expected.
+
+Identity is only as specific as the server's authentication. When every caller shares one credential, every record has the same `client_id` and fingerprint, and the fingerprint distinguishes credential rotations rather than people. Readers MUST NOT treat such records as coming from distinct submitters, and hosts that can tell callers apart some other way SHOULD supply `subject` through the resolver.
 
 ### Limits
 

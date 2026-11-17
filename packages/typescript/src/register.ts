@@ -55,6 +55,11 @@ interface SharedOptions {
   resolveIdentity?: ResolveIdentity;
   /** Prepended to every tool and prompt name, e.g. `"meme_"`. */
   toolPrefix?: string;
+  /**
+   * Secret for HMAC token fingerprints. Recommended; without it fingerprints are plain SHA-256.
+   * Use the same key everywhere that writes or compares fingerprints, and keep it stable.
+   */
+  tokenFingerprintKey?: string;
   /** Called with unexpected (non-validation) errors, for the host's logger. */
   onError?: (error: unknown, tool: string) => void;
 }
@@ -146,7 +151,7 @@ function createRuntime(server: McpServer, options: SharedOptions) {
   const prefix = options.toolPrefix ?? "";
 
   const identify = async (extra: FeedbackRequestExtra): Promise<FeedbackIdentity> => {
-    const defaults = defaultResolveIdentity(extra, server.server.getClientVersion());
+    const defaults = defaultResolveIdentity(extra, server.server.getClientVersion(), options.tokenFingerprintKey);
     return options.resolveIdentity ? { ...defaults, ...(await options.resolveIdentity(extra, defaults)) } : defaults;
   };
 
@@ -187,7 +192,8 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
           throw new FeedbackInputError("Feedback was not recorded: this server only accepts it from authenticated callers.");
         }
 
-        // The SDK does not expose the server's own name and version publicly.
+        // The SDK does not expose the server's own name and version publicly; tests cover this
+        // fallback, and hosts can avoid it by passing serverInfo.
         const constructed = (server.server as unknown as { _serverInfo?: Partial<FeedbackServerInfo> })._serverInfo;
         const now = new Date();
         const created = now.toISOString();

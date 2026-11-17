@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS mcp_feedback (
   id TEXT PRIMARY KEY,
   schema_version INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
+  created_at TIMESTAMPTZ(3) NOT NULL,
+  updated_at TIMESTAMPTZ(3) NOT NULL,
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,

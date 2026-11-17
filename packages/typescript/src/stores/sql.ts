@@ -56,12 +56,14 @@ const JSON_COLUMNS = new Set<string>(["tags", "tool_names", "context", "scopes"]
 /** DDL matching spec/sql/*.sql. */
 export function schemaStatements(dialect: Dialect, table: string): string[] {
   const json = dialect === "postgres" ? "JSONB" : "TEXT";
+  // Postgres keeps real timestamps at millisecond precision, so they round-trip the canonical form exactly.
+  const time = dialect === "postgres" ? "TIMESTAMPTZ(3)" : "TEXT";
   return [
     `CREATE TABLE IF NOT EXISTS ${table} (
   id TEXT PRIMARY KEY,
   schema_version INTEGER NOT NULL,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
+  created_at ${time} NOT NULL,
+  updated_at ${time} NOT NULL,
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
@@ -121,12 +123,14 @@ function toRow(record: FeedbackRecord): Row {
 // SQLite returns JSON columns as text, Postgres as parsed values.
 const parsed = <T>(value: unknown): T => (typeof value === "string" ? JSON.parse(value) : value) as T;
 const text = (value: unknown): string | null => (value == null ? null : String(value));
+// Postgres drivers return TIMESTAMPTZ as Date; SQLite stores the canonical string.
+const timestamp = (value: unknown): string => (value instanceof Date ? value.toISOString() : String(value));
 
 function fromRow(row: Row): FeedbackRecord {
   return {
     schema_version: Number(row.schema_version) as FeedbackRecord["schema_version"],
     id: String(row.id),
-    created_at: String(row.created_at),
+    created_at: timestamp(row.created_at),
     kind: row.kind as FeedbackRecord["kind"],
     title: String(row.title),
     body: String(row.body),
@@ -147,7 +151,7 @@ function fromRow(row: Row): FeedbackRecord {
     status: row.status as FeedbackRecord["status"],
     triage_note: text(row.triage_note),
     triaged_by: text(row.triaged_by),
-    updated_at: String(row.updated_at),
+    updated_at: timestamp(row.updated_at),
   };
 }
 

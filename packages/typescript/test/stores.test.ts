@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import pg from "pg";
 import { describe, expect, it } from "vitest";
 import { memoryStore } from "../src/index.js";
 import { postgresStore } from "../src/stores/postgres.js";
@@ -41,6 +42,20 @@ describe("store conformance", () => {
       await runStoreConformance(postgresStore({ client: db, table: "feedback_conformance" }));
     } finally {
       await db.close();
+    }
+  });
+
+  // Set by `docker compose up` users; see docker-compose.yml.
+  const serverUrl = process.env.MCP_FEEDBACK_TEST_POSTGRES_URL;
+
+  it.skipIf(!serverUrl)("postgres (server)", async () => {
+    const pool = new pg.Pool({ connectionString: serverUrl });
+    const table = `feedback_conformance_${process.pid}`;
+    try {
+      await runStoreConformance(postgresStore({ client: pool, table }));
+    } finally {
+      await pool.query(`DROP TABLE IF EXISTS ${table}`);
+      await pool.end();
     }
   });
 
