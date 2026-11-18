@@ -92,7 +92,7 @@ describe("mcp-feedback CLI", () => {
     expect(await cli(store, "triage", id(1))).toMatchObject({ code: 2, err: "Provide a status, a note, or both." });
     expect(await cli(store, "frobnicate")).toMatchObject({ code: 2 });
     expect(await cli(store, "list", "--bogus")).toMatchObject({ code: 2 });
-    expect(await cli(undefined, "stats")).toMatchObject({ code: 2, err: "No store given. Pass --db <path> or --postgres <url>." });
+    expect(await cli(undefined, "stats")).toMatchObject({ code: 2, err: "No source given. Pass --mcp <url>, --db <path> or --postgres <url>." });
   });
 
   it("prints usage", async () => {

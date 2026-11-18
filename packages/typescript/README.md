@@ -27,8 +27,17 @@ The reader tools list, fetch and count feedback, and `update_feedback_triage` cl
 
 ## CLI
 
+The CLI reads either through a server's reader endpoint (the reader tools, mounted behind a maintainer credential) or straight from the store.
+
 ```sh
-mcp-feedback stats --db ./feedback.db
+# Through a reader endpoint: needs its URL and credential, no database access.
+export MCP_FEEDBACK_URL=https://example.com/mcp/feedback   # or --mcp <url>
+export MCP_FEEDBACK_TOKEN=...                              # sent as a bearer token
+npx -y mcp-feedback stats
+
+# Or straight from the store.
+npx -y mcp-feedback stats --db ./feedback.db               # or --postgres <url>
+
 mcp-feedback list --status new --tool create_meme --text
 mcp-feedback export --since 2026-11-01 > feedback.jsonl
 mcp-feedback get <id> --text
@@ -37,7 +46,7 @@ mcp-feedback close <id> --dismiss --note "Working as intended"
 mcp-feedback reopen <id>
 ```
 
-Use `--postgres <url>` instead of `--db` for Postgres. That needs the `pg` package, so run the copy installed alongside your server (`npm exec mcp-feedback`, or `pnpm --filter <package> exec mcp-feedback` in a monorepo) rather than a fresh `npx` download. `MCP_FEEDBACK_DB` and `MCP_FEEDBACK_POSTGRES_URL` set the store from the environment. Output is JSON unless you pass `--text`. Exit code 2 means bad input; 1 means a failure or an id that was not found.
+`MCP_FEEDBACK_DB` and `MCP_FEEDBACK_POSTGRES_URL` set the store from the environment. With a reader endpoint, pass `--prefix` if the server set a `toolPrefix`; `--by` does not apply, because the server records who triaged from the credential. The same client is available in code as `connectFeedbackReader` from `mcp-feedback/client`. Output is JSON unless you pass `--text`. Exit code 2 means bad input; 1 means a failure or an id that was not found.
 
 Append `feedbackInstructions` to your server's `instructions` so agents know when to file. If you publish a tool catalog, merge in `feedbackToolCatalog`.
 

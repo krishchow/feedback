@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Reader CLI: the same operations as the MCP reader tools, straight against
-// the store, for setups that do not want to expose reader tools over MCP.
+// Reader CLI: the same operations as the MCP reader tools, either straight
+// against the store or through a server's reader endpoint (--mcp).
 
 import { realpathSync } from "node:fs";
 import { userInfo } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import type { FeedbackReaderClient } from "./client.js";
 import { FeedbackInputError, listPage, normalizeFilter, triageMany } from "./reader.js";
 import type { FeedbackStore } from "./store.js";
 import {
@@ -30,10 +31,13 @@ Commands:
   close <id...>         Mark resolved (or --dismiss), with an optional --note
   reopen <id...>        Set status back to new
 
-Store (one is required):
+Source (one is required):
+  --mcp <url>           A server's reader endpoint (or MCP_FEEDBACK_URL). Sends
+                        MCP_FEEDBACK_TOKEN from the environment as a bearer token.
+  --prefix <p>          The server's tool prefix, if it set one (with --mcp)
   --db <path>           SQLite file              (or MCP_FEEDBACK_DB)
-  --postgres <url>      Postgres connection URL  (or MCP_FEEDBACK_POSTGRES_URL; needs the pg package)
-  --table <name>        Table name, default mcp_feedback
+  --postgres <url>      Postgres connection URL  (or MCP_FEEDBACK_POSTGRES_URL)
+  --table <name>        Table name, default mcp_feedback (with --db or --postgres)
 
 Filters (stats, list, export):
   --kind <k>  --status <s>  --severity <s>  --subject <s>  --tool <name>  --tag <t>
@@ -46,7 +50,8 @@ Other:
   --note <text>         Triage note
   --clear-note          Remove the triage note
   --dismiss             With close: mark dismissed instead of resolved
-  --by <name>           Recorded as triaged_by (default: your username)
+  --by <name>           Recorded as triaged_by (default: your username; with --mcp
+                        the server records the credential's identity instead)
   --text                Human-readable output instead of JSON
 `;
 
@@ -62,25 +67,61 @@ async function openStore(values: Record<string, unknown>, env: CliIo["env"]): Pr
   const table = values.table as string | undefined;
   const db = (values.db as string | undefined) ?? env.MCP_FEEDBACK_DB;
   const postgres = (values.postgres as string | undefined) ?? env.MCP_FEEDBACK_POSTGRES_URL;
-  if (db && postgres) throw new FeedbackInputError("Pass either --db or --postgres, not both.");
+  if (db && postgres) throw new FeedbackInputError("Pass one of --mcp, --db or --postgres.");
   if (db) {
     const { sqliteStore } = await import("./stores/sqlite.js");
     return sqliteStore({ path: db, table });
   }
   if (postgres) {
-    let pg: any;
-    try {
-      const name = "pg";
-      pg = await import(name);
-    } catch {
-      throw new FeedbackInputError("--postgres needs the pg package: npm install pg");
-    }
-    const pool = new (pg.default ?? pg).Pool({ connectionString: postgres });
+    const { default: pg } = await import("pg");
+    const pool = new pg.Pool({ connectionString: postgres });
     const { postgresStore } = await import("./stores/postgres.js");
     // The CLI reads an existing table; it never creates one.
     return { ...postgresStore({ client: pool, table, migrate: false }), close: () => pool.end() };
   }
-  throw new FeedbackInputError("No store given. Pass --db <path> or --postgres <url>.");
+  throw new FeedbackInputError("No source given. Pass --mcp <url>, --db <path> or --postgres <url>.");
+}
+
+/** The same reader operations over a store the CLI opened itself. */
+function storeReader(store: FeedbackStore, by: string): FeedbackReaderClient {
+  return {
+    stats: (filter) => store.stats(filter),
+    list: (query) => listPage(store, query),
+    get: async (id) => {
+      const record = await store.get(id);
+      if (!record) throw new FeedbackInputError(`No feedback with id ${id}.`);
+      return record;
+    },
+    triage: (ids, change) => triageMany(store, ids, { ...change, by }),
+    close: async () => store.close?.(),
+  };
+}
+
+async function openReader(values: Record<string, unknown>, io: CliIo): Promise<FeedbackReaderClient> {
+  const by = (values.by as string | undefined) ?? io.env.USER ?? userInfo().username;
+  if (io.openStore) return storeReader(await io.openStore(), by);
+  const url = (values.mcp as string | undefined) ?? io.env.MCP_FEEDBACK_URL;
+  if (!url) {
+    if (values.prefix !== undefined) throw new FeedbackInputError("--prefix only applies with --mcp.");
+    return storeReader(await openStore(values, io.env), by);
+  }
+  if (values.db !== undefined || values.postgres !== undefined) throw new FeedbackInputError("Pass one of --mcp, --db or --postgres.");
+  if (values.table !== undefined) throw new FeedbackInputError("--table does not apply with --mcp.");
+  if (values.by !== undefined) throw new FeedbackInputError("--by does not apply with --mcp: the server records who triaged from the credential.");
+  const token = io.env.MCP_FEEDBACK_TOKEN;
+  const { connectFeedbackReader, FeedbackReaderError } = await import("./client.js");
+  try {
+    return await connectFeedbackReader({
+      url,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      toolPrefix: values.prefix as string | undefined,
+    });
+  } catch (error) {
+    if (error instanceof FeedbackReaderError && error.status === 401 && !token) {
+      throw new FeedbackReaderError(`${error.message} MCP_FEEDBACK_TOKEN is not set; set it to the endpoint's maintainer credential.`, 401);
+    }
+    throw error;
+  }
 }
 
 function oneOf<T extends string>(label: string, value: unknown, allowed: readonly T[]): T | undefined {
@@ -108,7 +149,7 @@ function detail(record: FeedbackRecord): string {
 
 /** Runs the CLI and resolves the process exit code. */
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
-  let store: FeedbackStore | undefined;
+  let reader: FeedbackReaderClient | undefined;
   try {
     let parsed;
     try {
@@ -116,6 +157,8 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         args: argv,
         allowPositionals: true,
         options: {
+          mcp: { type: "string" },
+          prefix: { type: "string" },
           db: { type: "string" },
           postgres: { type: "string" },
           table: { type: "string" },
@@ -162,13 +205,13 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     const needIds = () => {
       if (!ids.length) throw new FeedbackInputError(`${command} needs at least one id.`);
     };
-    const open = async () => (store = await (io.openStore ? io.openStore() : openStore(values, io.env)));
+    const open = async () => (reader ??= await openReader(values, io));
 
     const triage = async (change: { status?: FeedbackStatus; note?: string | null }) => {
       needIds();
       const note = values["clear-note"] ? null : (values.note ?? change.note);
-      const by = values.by ?? io.env.USER ?? userInfo().username;
-      const outcome = await triageMany(await open(), ids, { status: change.status, note, by });
+      if (change.status === undefined && note === undefined) throw new FeedbackInputError("Provide a status, a note, or both.");
+      const outcome = await (await open()).triage([...new Set(ids)], { status: change.status, note });
       if (values.text) {
         for (const record of outcome.updated) io.out(summaryLine(record));
         for (const id of outcome.not_found) io.err(`not found: ${id}`);
@@ -196,7 +239,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) {
           throw new FeedbackInputError("--limit must be a whole number from 1 to 1000.");
         }
-        const page = await listPage(await open(), { ...filter, limit, cursor: values.cursor });
+        const page = await (await open()).list({ ...filter, limit: limit ?? 25, cursor: values.cursor });
         if (!values.text) json(page);
         else {
           page.items.forEach((record) => io.out(summaryLine(record)));
@@ -208,7 +251,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         const source = await open();
         let cursor: string | undefined;
         do {
-          const page = await listPage(source, { ...filter, limit: 200, cursor });
+          const page = await source.list({ ...filter, limit: 200, cursor });
           for (const record of page.items) io.out(values.text ? summaryLine(record) : JSON.stringify(record));
           cursor = page.next_cursor ?? undefined;
         } while (cursor);
@@ -217,7 +260,6 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       case "get": {
         if (ids.length !== 1) throw new FeedbackInputError("get takes exactly one id.");
         const record = await (await open()).get(ids[0]!);
-        if (!record) throw new FeedbackInputError(`No feedback with id ${ids[0]}.`);
         if (values.text) io.out(detail(record));
         else json(record);
         return 0;
@@ -240,7 +282,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     io.err(`mcp-feedback: ${error instanceof Error ? error.message : String(error)}`);
     return 1;
   } finally {
-    await store?.close?.();
+    await reader?.close();
   }
 }
 

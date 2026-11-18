@@ -27,7 +27,7 @@ The package is TypeScript, for `@modelcontextprotocol/sdk` 1.x on Node 22.13+. F
 npm install mcp-feedback
 ```
 
-`pg` is needed only for the CLI's `--postgres` flag; the Postgres store itself takes the pool the server already has.
+The Postgres store takes the pool the server already has; the `pg` dependency is for the CLI.
 
 If the install is refused because the release is too new (pnpm's `minimumReleaseAge`, or a similar policy), ask the user before adding `mcp-feedback` to the exclusion list; do not pin an older version to get around it.
 
@@ -103,10 +103,17 @@ If the server publishes no skill, the `instructions` string is enough; do not cr
 
 ### 6. Choose how feedback is read
 
-Ask the user if they have not said. The options combine.
+Ask the user if they have not said. For a deployed server, recommend a reader endpoint.
 
-- **CLI only.** Nothing more to add to the server. Maintainers run the copy installed with the server, for example `npm exec mcp-feedback -- stats --db ./feedback.db` or, in a pnpm monorepo, `pnpm --filter <server package> exec mcp-feedback stats --postgres "$DATABASE_URL"`; then `list`, `export`, `get`, `close`, `reopen`, `triage`. Bare `npx mcp-feedback` from elsewhere downloads a fresh copy without `pg`, so `--postgres` fails there.
-- **MCP reader tools.** Mount `registerFeedbackReader(adminServer, { store: feedbackStore })` on a separate endpoint with its own credential. It exposes every caller's feedback, so never register it on the server ordinary agents connect to. Pass `readOnly: true` to leave out the tool that changes status.
+- **Reader endpoint (recommended for deployed servers).** Mount `registerFeedbackReader(adminServer, { store: feedbackStore, tokenFingerprintKey })` on a separate MCP endpoint behind a maintainer credential, for example the server's existing admin credential. It exposes every caller's feedback, so never register it on the endpoint ordinary agents connect to. Pass `readOnly: true` to leave out the tool that changes status. Maintainers then need only that URL and credential, never database access, and can either connect it to their agent sessions or drive it with the CLI:
+
+  ```sh
+  MCP_FEEDBACK_URL=https://<host>/<reader endpoint> MCP_FEEDBACK_TOKEN=<credential> npx -y mcp-feedback stats
+  ```
+
+- **CLI against the store.** Nothing to add to the server; maintainers need database access. `npx -y mcp-feedback stats --db ./feedback.db` or `--postgres "$DATABASE_URL"`, then `list`, `export`, `get`, `close`, `reopen`, `triage`. Suits local and stdio servers.
+
+Document whichever you choose in the server's own docs: the URL or store, where the credential comes from, and the drain loop (`stats`, `list --status new`, `close <ids> --note`).
 
 The people and agents who read it use this plugin's `read-feedback` skill.
 
