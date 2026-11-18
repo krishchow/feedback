@@ -31,6 +31,12 @@ const fail = (message) => {
 const version = () => JSON.parse(readFileSync(pkgJson, "utf8")).version;
 
 if (bump && !/^(patch|minor|major|\d+\.\d+\.\d+(-[\w.]+)?)$/.test(bump)) fail(`unknown version "${bump}"; use patch, minor, major or x.y.z`);
+try {
+  read("npm", ["whoami"]);
+} catch {
+  // npm reports an unauthenticated publish as a 404, so check first.
+  fail("not logged in to npm (npm whoami failed); run npm login, then try again");
+}
 if (read("git", ["status", "--porcelain"])) fail("the working tree has uncommitted changes; commit or stash them first");
 if (read("git", ["branch", "--show-current"]) !== "main") fail("releases are cut from main; merge your branch first");
 run("git", ["fetch", "--quiet", "origin", "main"]);
