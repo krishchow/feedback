@@ -38,8 +38,15 @@ A host MAY require that agents file only with the user's explicit confirmation. 
 The implementation builds the record as follows:
 
 - `id`, `created_at`, `updated_at`, `identity`, `server`, `status` (`new`), `triage_note` (`null`) and `triaged_by` (`null`) are set by the server. Values for these in tool input MUST NOT be honoured.
-- `severity` defaults to `none`. `tags` are de-duplicated, keeping first occurrences. `context` defaults to `{}`.
+- `severity` defaults to `none`. `tags` are de-duplicated, keeping first occurrences. `context` defaults to `{}`. A `title` or `body` that is empty or only whitespace MUST be refused.
 - `id` SHOULD be a UUIDv7. Timestamps MUST be UTC in the form `YYYY-MM-DDTHH:mm:ss.sssZ`.
+
+### Context for readers
+
+Two context fields exist so a reader can rebuild how a problem appeared, whatever the host's domain objects are:
+
+- `context.references` maps a kind of object to its id (`{ "orderId": "ord-123" }`), supplied by the agent. Keys MUST match `^[A-Za-z][A-Za-z0-9_-]{0,63}$` and values are strings; a violation is an input error. A host MAY declare the keys it wants, each with a description; an implementation then MUST list them, with their descriptions, in the tool's input schema, and MUST still accept undeclared keys.
+- `context.server_context` is attached by the host, not the agent: an implementation MUST drop it from tool input and MAY offer a hook that receives the built record and the request and returns it. If the hook fails, the record MUST still be stored, without it, and the failure SHOULD go to the host's error hook.
 
 ### Identity
 
@@ -87,7 +94,7 @@ Problems with the caller's input are returned as tool errors with a message the 
 
 ## Reading
 
-- `list_feedback` returns `{ items, next_cursor }`: full records, newest first, default page size 25, maximum 100. `since` and `until` accept any ISO 8601 timestamp and are normalised to the canonical form before reaching the store.
+- `list_feedback` returns `{ items, next_cursor }`: full records, newest first, default page size 25, maximum 100. `since` and `until` accept any ISO 8601 timestamp and are normalised to the canonical form before reaching the store. `reference` (`{ key, value }`) matches records whose `context.references[key]` equals `value`; a key that does not match the reference key pattern is an input error.
 - `get_feedback` returns one record, or a tool error if the id is unknown.
 - `update_feedback_triage` triages or closes out one or more records (`ids`, 1 to 100). It changes only `status` and `triage_note` (input field `note`; `null` clears it); at least one MUST be given. `resolved` and `dismissed` close a record, `new` reopens it. `triaged_by` is set from the reader's resolved identity (`subject`, else `client_id`, else `token_fingerprint`) and `updated_at` to the current time. It returns `{ updated, not_found }`: the updated records and the ids that matched nothing. Unknown ids do not make the call fail. Submitted content and submitter identity are immutable.
 - `feedback_stats` returns `{ total, by_kind, by_status, by_severity, by_tool }` for the same filters as `list_feedback`.

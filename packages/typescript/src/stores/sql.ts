@@ -175,6 +175,11 @@ function where(dialect: Dialect, filter: FeedbackFilter): { clauses: string[]; p
   if (filter.tag !== undefined) contains("tags", filter.tag);
   if (filter.since !== undefined) add("f.created_at >= ?", filter.since);
   if (filter.until !== undefined) add("f.created_at < ?", filter.until);
+  if (filter.reference !== undefined) {
+    // Keys are checked against REFERENCE_KEY_PATTERN before they reach a store.
+    if (dialect === "postgres") add("f.context -> 'references' ->> ? = ?", filter.reference.key, filter.reference.value);
+    else add("json_extract(f.context, ?) = ?", `$.references."${filter.reference.key}"`, filter.reference.value);
+  }
   return { clauses, params };
 }
 

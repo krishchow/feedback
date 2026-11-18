@@ -33,6 +33,7 @@ For a specific question, answer it directly; a full synthesis is not needed.
 - "Anything new?" Stats with `status=new`, then list those.
 - "What's going wrong with tool X?" List with `tool=X`.
 - "What did this user report?" List with `subject=...`.
+- "What's been reported about this object?" List with `reference` set to its key and id (`--ref orderId=ord-123` with the CLI). The keys a server uses appear in its records' `context.references`.
 - "Show me that report." Get by id; with the CLI add `--text` for a readable view.
 
 ## Full synthesis
@@ -41,7 +42,7 @@ When asked to review or summarise the feedback as a whole, the job is to tell th
 
 1. Call `feedback_stats` (with `since` if you were given a time window) to see volume by kind, status, severity and tool.
 2. Page through `list_feedback` until `next_cursor` is null. Read every record in scope. If there are too many to read, say how many you read and how you chose them.
-3. Group records that describe the same underlying problem or request, even when the wording, tool or kind differs. A timeout reported as `tool_failure` and slowness reported as `friction` may be one issue.
+3. Group records that describe the same underlying problem or request, even when the wording, tool or kind differs. A timeout reported as `tool_failure` and slowness reported as `friction` may be one issue. Records naming the same object in `context.references` often belong together. To reconstruct a problem, use `context.references` to look up the objects involved and `context.server_context` for what the server recorded at the time (versions, object state); the server context is more reliable than the agent's own account.
 4. For each group work out:
    - what is wrong or wanted, in one sentence
    - the tools involved

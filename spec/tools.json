@@ -123,6 +123,13 @@
                 "type": "object",
                 "additionalProperties": {},
                 "description": "Any other structured details."
+              },
+              "references": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "Identifiers of the objects involved (records, documents, jobs, generated outputs), keyed by what they are, so a reader can look them up and see what you saw. Include every relevant id you have."
               }
             },
             "additionalProperties": false,
@@ -198,6 +205,23 @@
           "until": {
             "type": "string",
             "description": "ISO 8601 timestamp; include feedback created before it."
+          },
+          "reference": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "value"
+            ],
+            "additionalProperties": false,
+            "description": "Only feedback whose context.references[key] equals value, e.g. every report about one record."
           },
           "limit": {
             "type": "integer",
@@ -343,6 +367,23 @@
           "until": {
             "type": "string",
             "description": "ISO 8601 timestamp; include feedback created before it."
+          },
+          "reference": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "key",
+              "value"
+            ],
+            "additionalProperties": false,
+            "description": "Only feedback whose context.references[key] equals value, e.g. every report about one record."
           }
         },
         "additionalProperties": false,

@@ -13,9 +13,12 @@
         "ui"
       ],
       "context": {
+        "references": {
+          "documentId": "doc-2"
+        },
         "tool_calls": [
           {
-            "name": "create_meme"
+            "name": "create_order"
           }
         ]
       },
@@ -53,11 +56,11 @@
         "ui"
       ],
       "context": {
-        "goal": "Make a meme — with “quotes”, 'apostrophes' and emoji 🎭",
+        "goal": "Place an order — with “quotes”, 'apostrophes' and emoji 🎭",
         "expected": "A job id",
         "actual": "504 after 30s",
         "repro_steps": [
-          "call create_meme",
+          "call create_order",
           "wait"
         ],
         "excerpt": "line one\nline two",
@@ -72,12 +75,27 @@
             ]
           }
         },
+        "references": {
+          "documentId": "doc-1",
+          "jobId": "job-9"
+        },
+        "server_context": {
+          "version": "1.2.3",
+          "job": {
+            "id": "job-9",
+            "state": "failed",
+            "attempts": [
+              1,
+              2
+            ]
+          }
+        },
         "tool_calls": [
           {
-            "name": "create_meme"
+            "name": "create_order"
           },
           {
-            "name": "list_templates"
+            "name": "list_orders"
           }
         ]
       },
@@ -147,7 +165,7 @@
       "context": {
         "tool_calls": [
           {
-            "name": "list_templates"
+            "name": "list_orders"
           }
         ]
       },
@@ -213,9 +231,12 @@
         "timeout"
       ],
       "context": {
+        "references": {
+          "documentId": "doc-1"
+        },
         "tool_calls": [
           {
-            "name": "create_meme"
+            "name": "create_order"
           }
         ]
       },
@@ -353,7 +374,7 @@
       "name": "filters by tool",
       "op": "list",
       "filter": {
-        "tool": "create_meme"
+        "tool": "create_order"
       },
       "limit": 10,
       "expect_pages": [
@@ -423,6 +444,54 @@
       ]
     },
     {
+      "name": "filters by a reference",
+      "op": "list",
+      "filter": {
+        "reference": {
+          "key": "documentId",
+          "value": "doc-1"
+        }
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000002"
+        ]
+      ]
+    },
+    {
+      "name": "a reference matches one key only",
+      "op": "list",
+      "filter": {
+        "reference": {
+          "key": "jobId",
+          "value": "doc-1"
+        }
+      },
+      "limit": 10,
+      "expect_pages": [
+        []
+      ]
+    },
+    {
+      "name": "combines a reference with other filters",
+      "op": "list",
+      "filter": {
+        "kind": "bug",
+        "reference": {
+          "key": "documentId",
+          "value": "doc-1"
+        }
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006"
+        ]
+      ]
+    },
+    {
       "name": "round-trips a full record",
       "op": "get",
       "id": "00000000-0000-7000-8000-000000000002",
@@ -463,8 +532,8 @@
           "minor": 2
         },
         "by_tool": {
-          "create_meme": 3,
-          "list_templates": 2
+          "create_order": 3,
+          "list_orders": 2
         }
       }
     },
@@ -489,7 +558,35 @@
           "minor": 1
         },
         "by_tool": {
-          "create_meme": 2
+          "create_order": 2
+        }
+      }
+    },
+    {
+      "name": "stats honour a reference",
+      "op": "stats",
+      "filter": {
+        "reference": {
+          "key": "documentId",
+          "value": "doc-1"
+        }
+      },
+      "expect": {
+        "total": 2,
+        "by_kind": {
+          "tool_failure": 1,
+          "bug": 1
+        },
+        "by_status": {
+          "new": 2
+        },
+        "by_severity": {
+          "blocker": 1,
+          "minor": 1
+        },
+        "by_tool": {
+          "create_order": 2,
+          "list_orders": 1
         }
       }
     },

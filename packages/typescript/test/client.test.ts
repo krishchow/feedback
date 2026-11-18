@@ -100,9 +100,9 @@ describe("mcp-feedback CLI with --mcp", () => {
 
   it("runs every command against a reader endpoint", async () => {
     const store = await seeded(150);
-    const endpoint = await readerEndpoint(store, "meme_");
+    const endpoint = await readerEndpoint(store, "shop_");
     const env = { MCP_FEEDBACK_TOKEN: TOKEN };
-    const via = ["--mcp", endpoint.url, "--prefix", "meme_"];
+    const via = ["--mcp", endpoint.url, "--prefix", "shop_"];
     try {
       expect(JSON.parse((await cli(env, "stats", ...via)).out).total).toBe(156);
       const page = JSON.parse((await cli(env, "list", "--limit", "2", "--kind", "bug", ...via)).out);
@@ -119,7 +119,7 @@ describe("mcp-feedback CLI with --mcp", () => {
       expect(unprefixed).toMatchObject({ code: 1, err: expect.stringMatching(/Tool feedback_stats not found\. If the server uses a tool prefix, pass it\./) });
 
       // The URL can also come from the environment.
-      expect((await cli({ ...env, MCP_FEEDBACK_URL: endpoint.url }, "reopen", id(3), "--prefix", "meme_")).code).toBe(0);
+      expect((await cli({ ...env, MCP_FEEDBACK_URL: endpoint.url }, "reopen", id(3), "--prefix", "shop_")).code).toBe(0);
       expect((await store.get(id(3)))!.status).toBe("new");
     } finally {
       await endpoint.close();

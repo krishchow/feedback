@@ -114,8 +114,8 @@ describe("mcp-feedback serve", () => {
 
   it("re-serves a remote reader endpoint; the remote server records who triaged", async () => {
     const store = await seeded();
-    const endpoint = await readerEndpoint(store, "meme_");
-    const session = await serve(["--prefix", "meme_"], { MCP_FEEDBACK_URL: endpoint.url, MCP_FEEDBACK_TOKEN: READER_TOKEN });
+    const endpoint = await readerEndpoint(store, "shop_");
+    const session = await serve(["--prefix", "shop_"], { MCP_FEEDBACK_URL: endpoint.url, MCP_FEEDBACK_TOKEN: READER_TOKEN });
     try {
       // Local tool names are unprefixed whatever the remote uses.
       expect((await call(session.client, "feedback_stats")).data).toEqual(await store.stats({}));

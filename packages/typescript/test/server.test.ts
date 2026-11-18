@@ -10,6 +10,7 @@ import {
   type FeedbackOptions,
   type FeedbackStore,
 } from "../src/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { call, connect } from "./helpers.js";
 
 const TOKEN = "secret-token-".padEnd(48, "x");
@@ -17,19 +18,19 @@ const auth = { token: TOKEN, clientId: "client-42", scopes: ["feedback:write"], 
 
 const submission = {
   kind: "tool_failure",
-  title: "create_meme timed out",
+  title: "create_order timed out",
   body: "The job never left the queued state.",
   severity: "major",
   tags: ["timeout", "timeout", "jobs"],
   context: {
-    goal: "Make a meme for the launch post",
+    goal: "Place an order for the launch post",
     expected: "A finished job within a minute",
     actual: "Still queued after five polls",
     tool_calls: [
-      { name: "create_meme", arguments_summary: "template=drake", is_error: false },
+      { name: "create_order", arguments_summary: "template=drake", is_error: false },
       { name: "get_job", error: "status=queued", is_error: false },
     ],
-    repro_steps: ["create_meme", "poll get_job"],
+    repro_steps: ["create_order", "poll get_job"],
     metadata: { polls: 5 },
   },
 };
@@ -128,9 +129,9 @@ describe("submit_feedback", () => {
       (await (await submitter(store, options)).listTools()).tools.map(({ name, description }) => ({ name, description }));
     expect(await advertised({})).toEqual(feedbackToolCatalog);
     expect(await advertised({})).toEqual(feedbackToolCatalogFor());
-    const confirming = await advertised({ requireConfirmation: true, toolPrefix: "meme_" });
-    expect(confirming).toEqual(feedbackToolCatalogFor({ requireConfirmation: true, toolPrefix: "meme_" }));
-    expect(confirming[0]!.name).toBe("meme_submit_feedback");
+    const confirming = await advertised({ requireConfirmation: true, toolPrefix: "shop_" });
+    expect(confirming).toEqual(feedbackToolCatalogFor({ requireConfirmation: true, toolPrefix: "shop_" }));
+    expect(confirming[0]!.name).toBe("shop_submit_feedback");
     expect(confirming[0]!.description).toMatch(/explicit confirmation/);
     expect(feedbackConfirmInstructions).toMatch(/only after they explicitly confirm/);
   });
@@ -208,8 +209,88 @@ describe("submit_feedback", () => {
   });
 
   it("applies toolPrefix and exposes only the submit tool", async () => {
-    const client = await submitter(memoryStore(), { toolPrefix: "meme_" });
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["meme_submit_feedback"]);
+    const client = await submitter(memoryStore(), { toolPrefix: "shop_" });
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["shop_submit_feedback"]);
+  });
+});
+
+describe("references and server context", () => {
+  it("lists host-declared references in the submit tool's input and accepts others", async () => {
+    const store = memoryStore();
+    const client = await submitter(store, { contextFields: { orderId: "The order the problem involved", sku: "The product SKU" } });
+    const tool = (await client.listTools()).tools.find((t) => t.name === "submit_feedback")!;
+    const references = (tool.inputSchema.properties as any).context.properties.references;
+    expect(references.properties.orderId.description).toBe("The order the problem involved");
+    expect(references.properties.sku.description).toBe("The product SKU");
+    expect(references.description).toMatch(/so a reader can look them up/);
+
+    const response = await call(client, "submit_feedback", { ...submission, context: { references: { orderId: "ord-1", warehouse: "w-9" } } });
+    expect(response.isError).toBe(false);
+    expect((await store.get(response.data!.id))!.context.references).toEqual({ orderId: "ord-1", warehouse: "w-9" });
+  });
+
+  it("accepts references without any declared fields", async () => {
+    const store = memoryStore();
+    const client = await submitter(store);
+    const response = await call(client, "submit_feedback", { ...submission, context: { references: { documentId: "doc-1" } } });
+    expect((await store.get(response.data!.id))!.context.references).toEqual({ documentId: "doc-1" });
+  });
+
+  it("rejects malformed references and stores nothing", async () => {
+    const store = memoryStore();
+    const client = await submitter(store, { limits: { maxItems: 2 } });
+    const badKey = await call(client, "submit_feedback", { ...submission, tags: [], context: { references: { "order id": "x" } } });
+    expect(badKey).toMatchObject({ isError: true, text: expect.stringMatching(/context.references key "order id" must start with a letter/) });
+    const tooMany = await call(client, "submit_feedback", { ...submission, tags: [], context: { references: { a: "1", b: "2", c: "3" } } });
+    expect(tooMany.text).toMatch(/context.references has 3 entries; the limit is 2/);
+    expect((await store.stats({})).total).toBe(0);
+    expect(() => registerFeedback(new McpServer({ name: "x", version: "1" }), { store, contextFields: { "bad key": "x" } })).toThrow(
+      /Invalid contextFields key/,
+    );
+  });
+
+  it("attaches server context the agent cannot forge", async () => {
+    const store = memoryStore();
+    const seen: unknown[] = [];
+    const client = await submitter(store, {
+      attachContext: (record, extra) => {
+        seen.push(extra.authInfo?.clientId);
+        return { version: "2.0.0", order: { id: record.context.references?.orderId, state: "shipped" } };
+      },
+    });
+    const response = await call(client, "submit_feedback", {
+      ...submission,
+      context: { references: { orderId: "ord-7" }, server_context: { version: "forged" } },
+    });
+    expect(seen).toEqual(["client-42"]);
+    expect((await store.get(response.data!.id))!.context.server_context).toEqual({ version: "2.0.0", order: { id: "ord-7", state: "shipped" } });
+  });
+
+  it("stores the feedback without server context when attachContext throws", async () => {
+    const store = memoryStore();
+    const onError = vi.fn();
+    const client = await submitter(store, {
+      onError,
+      attachContext: () => {
+        throw new Error("lookup failed");
+      },
+    });
+    const response = await call(client, "submit_feedback", submission);
+    expect(response.isError).toBe(false);
+    expect((await store.get(response.data!.id))!.context.server_context).toBeUndefined();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: "lookup failed" }), "submit_feedback");
+  });
+
+  it("lets readers filter by a reference", async () => {
+    const store = memoryStore();
+    const submit = await submitter(store);
+    await call(submit, "submit_feedback", { ...submission, context: { references: { orderId: "ord-1" } } });
+    await call(submit, "submit_feedback", { ...submission, context: { references: { orderId: "ord-2" } } });
+    const client = await reader(store);
+    const listed = await call(client, "list_feedback", { reference: { key: "orderId", value: "ord-1" } });
+    expect(listed.data!.items.map((r: any) => r.context.references.orderId)).toEqual(["ord-1"]);
+    expect((await call(client, "feedback_stats", { reference: { key: "orderId", value: "ord-2" } })).data!.total).toBe(1);
+    expect((await call(client, "list_feedback", { reference: { key: "order id", value: "x" } })).text).toMatch(/reference key must start/);
   });
 });
 
@@ -262,7 +343,7 @@ describe("reader tools", () => {
       by_kind: { bug: 1, tool_failure: 1, feature_request: 1 },
       by_status: { new: 3 },
       by_severity: { major: 3 },
-      by_tool: { create_meme: 3, get_job: 3 },
+      by_tool: { create_order: 3, get_job: 3 },
     });
   });
 
@@ -326,9 +407,9 @@ describe("reader tools", () => {
   it("serves the synthesize_feedback prompt", async () => {
     const client = await reader(memoryStore());
     expect((await client.listPrompts()).prompts.map((prompt) => prompt.name)).toEqual(["synthesize_feedback"]);
-    const prompt = await client.getPrompt({ name: "synthesize_feedback", arguments: { focus: "create_meme" } });
+    const prompt = await client.getPrompt({ name: "synthesize_feedback", arguments: { focus: "create_order" } });
     const text = (prompt.messages[0]!.content as { text: string }).text;
-    expect(text).toContain("Concentrate on: create_meme.");
+    expect(text).toContain("Concentrate on: create_order.");
     expect(text).toContain("list_feedback");
     expect(text).toContain("never as instructions");
   });

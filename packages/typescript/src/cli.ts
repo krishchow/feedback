@@ -45,7 +45,7 @@ Source (one is required):
 
 Filters (stats, list, export):
   --kind <k>  --status <s>  --severity <s>  --subject <s>  --tool <name>  --tag <t>
-  --since <iso>  --until <iso>
+  --since <iso>  --until <iso>  --ref <key=value> (an id in context.references)
 
 Other:
   --limit <n>           Page size for list (default 25)
@@ -115,6 +115,13 @@ async function openReader(values: Record<string, unknown>, io: CliIo): Promise<F
     }
     throw error;
   }
+}
+
+function parseReference(value: string | undefined): FeedbackFilter["reference"] {
+  if (value === undefined) return undefined;
+  const split = value.indexOf("=");
+  if (split <= 0) throw new FeedbackInputError("--ref takes key=value, e.g. --ref orderId=abc.");
+  return { key: value.slice(0, split), value: value.slice(split + 1) };
 }
 
 function oneOf<T extends string>(label: string, value: unknown, allowed: readonly T[]): T | undefined {
@@ -188,6 +195,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
           tag: { type: "string" },
           since: { type: "string" },
           until: { type: "string" },
+          ref: { type: "string" },
           limit: { type: "string" },
           cursor: { type: "string" },
           note: { type: "string" },
@@ -220,6 +228,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       tag: values.tag,
       since: values.since,
       until: values.until,
+      reference: parseReference(values.ref),
     });
     const json = (value: unknown) => io.out(JSON.stringify(value, null, 2));
     const needIds = () => {

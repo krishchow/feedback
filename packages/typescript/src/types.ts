@@ -29,6 +29,10 @@ export interface FeedbackContext {
   repro_steps?: string[];
   excerpt?: string;
   metadata?: Record<string, unknown>;
+  /** Ids of the objects involved, keyed by what they are (e.g. `orderId`). Supplied by the agent. */
+  references?: Record<string, string>;
+  /** Attached by the server's `attachContext` hook; never taken from tool input. */
+  server_context?: Record<string, unknown>;
 }
 
 /** Who submitted the feedback. Always stamped by the server, never read from tool input. */
@@ -79,6 +83,8 @@ export interface FeedbackFilter {
   since?: string;
   /** Exclusive upper bound on created_at. */
   until?: string;
+  /** Matches records whose context.references[key] equals value. */
+  reference?: { key: string; value: string };
 }
 
 export interface FeedbackListQuery extends FeedbackFilter {

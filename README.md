@@ -54,7 +54,8 @@ npx -y mcp-feedback stats
 # Or straight from the store.
 npx -y mcp-feedback stats --db ./feedback.db               # or --postgres <url>
 
-mcp-feedback list --status new --tool create_meme --text
+mcp-feedback list --status new --tool search_orders --text
+mcp-feedback list --ref orderId=ord-123 --text            # everything reported about one object
 mcp-feedback export --since 2026-11-01 > feedback.jsonl
 mcp-feedback get <id> --text
 mcp-feedback close <id> <id> --note "Fixed in 1.2"
@@ -65,7 +66,7 @@ mcp-feedback reopen <id>
 `mcp-feedback serve` runs the reader tools as a **stdio MCP server**, in front of any of those sources, so an agent session can read and triage feedback without connecting to a remote HTTP endpoint itself. Messages go to stderr; stdout carries the protocol. Add `--read-only` to leave out triage. For Claude Code:
 
 ```sh
-claude mcp add memecp-feedback --scope user --env MCP_FEEDBACK_URL=https://example.com/mcp/feedback -- npx -y mcp-feedback serve
+claude mcp add myapp-feedback --scope user --env MCP_FEEDBACK_URL=https://example.com/mcp/feedback -- npx -y mcp-feedback serve
 ```
 
 The server inherits the environment Claude Code starts in, so `MCP_FEEDBACK_TOKEN` exported in your shell reaches it without being written into the client's configuration. With a store (`serve --db` or `--postgres`), triage is recorded as `--by` or your username.
@@ -88,6 +89,26 @@ registerFeedback(server, {
 });
 ```
 
+### Context
+
+Agents describe what happened in `context`: goal, expected and actual behaviour, the tool calls involved, repro steps, an excerpt and free-form `metadata`. Two fields let a reader rebuild the situation later, whatever your server's objects are:
+
+- **`context.references`**: ids of the objects involved, keyed by what they are (`{ orderId: "ord-123", invoiceId: "inv-9" }`). Agents can include any; declare the ones that matter to your server with `contextFields` and they appear, with their descriptions, in the tool's input. Readers filter on them (`--ref orderId=ord-123`, or `reference` in `list_feedback` and `feedback_stats`).
+- **`context.server_context`**: what the server knows and the agent does not, attached by `attachContext` when the feedback is submitted: versions, request ids, the state of the referenced objects at that moment. Agents cannot set it.
+
+```ts
+registerFeedback(server, {
+  store,
+  contextFields: { orderId: "The order the problem involved", invoiceId: "The invoice, if one was produced" },
+  attachContext: async (record, extra) => ({
+    version: process.env.APP_VERSION,
+    order: record.context.references?.orderId ? await snapshotOrder(record.context.references.orderId) : undefined,
+  }),
+});
+```
+
+If `attachContext` throws, the feedback is still stored without it and the error goes to `onError`.
+
 ### Options
 
 | Option | Purpose |
@@ -96,6 +117,8 @@ registerFeedback(server, {
 | `resolveIdentity` | Override identity fields for a request. |
 | `requireConfirmation` | Tell agents to file only after the user confirms the exact feedback. Use `feedbackConfirmInstructions` in place of `feedbackInstructions`, and `feedbackToolCatalogFor(options)` for catalogs. |
 | `requireIdentity` | Refuse submissions with no subject and no token fingerprint. |
+| `contextFields` | Ids agents should include in `context.references`, as name → description. |
+| `attachContext` | Attach what the server knows (versions, object state) as `context.server_context`. |
 | `redact` | Scrub a record before it is stored. |
 | `limits` | Override size limits (see the spec for defaults). |
 | `toolPrefix` | Prefix for tool and prompt names. |

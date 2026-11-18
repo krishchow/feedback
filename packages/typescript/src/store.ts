@@ -61,5 +61,8 @@ export function matchesFilter(record: FeedbackRecord, filter: FeedbackFilter): b
   if (filter.tag !== undefined && !record.tags.includes(filter.tag)) return false;
   if (filter.since !== undefined && record.created_at < filter.since) return false;
   if (filter.until !== undefined && record.created_at >= filter.until) return false;
+  if (filter.reference !== undefined && record.context.references?.[filter.reference.key] !== filter.reference.value) {
+    return false;
+  }
   return true;
 }

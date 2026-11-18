@@ -21,7 +21,8 @@ import {
   feedbackStatsShape,
   getFeedbackShape,
   listFeedbackShape,
-  submitFeedbackShape,
+  submitFeedbackShapeFor,
+  REFERENCE_KEY_PATTERN,
   synthesizeFeedbackArgsShape,
   synthesizePromptText,
   updateFeedbackTriageShape,
@@ -58,7 +59,7 @@ export const DEFAULT_FEEDBACK_LIMITS: FeedbackLimits = {
 interface SharedOptions {
   /** Maps a request onto an identity; overrides what the default resolver finds. */
   resolveIdentity?: ResolveIdentity;
-  /** Prepended to every tool and prompt name, e.g. `"meme_"`. */
+  /** Prepended to every tool and prompt name, e.g. `"shop_"`. */
   toolPrefix?: string;
   /**
    * Secret for HMAC token fingerprints. Recommended; without it fingerprints are plain SHA-256.
@@ -79,6 +80,21 @@ export interface FeedbackOptions extends SharedOptions {
   requireConfirmation?: boolean;
   /** Refuse submissions that carry neither a subject nor a token fingerprint. */
   requireIdentity?: boolean;
+  /**
+   * Ids the server wants agents to include in `context.references`, as name -> description, e.g.
+   * `{ orderId: "The order the problem involved" }`. They appear in the submit tool's input.
+   */
+  contextFields?: Record<string, string>;
+  /**
+   * Attaches what the server knows that the agent cannot: versions, request ids, the state of the
+   * referenced objects. Receives the record (with the agent's `context.references`) and the request;
+   * what it returns is stored as `context.server_context`. If it throws, the feedback is stored
+   * without it and the error goes to `onError`.
+   */
+  attachContext?: (
+    record: Readonly<FeedbackRecord>,
+    extra: FeedbackRequestExtra,
+  ) => Record<string, unknown> | undefined | Promise<Record<string, unknown> | undefined>;
   /** Last chance to scrub a record before it is stored. */
   redact?: (record: FeedbackRecord) => FeedbackRecord | Promise<FeedbackRecord>;
   limits?: Partial<FeedbackLimits>;
@@ -151,6 +167,18 @@ function checkLimits(input: SubmitInput, limits: FeedbackLimits): void {
   }
   items("context.repro_steps", context.repro_steps);
   context.repro_steps?.forEach((step, index) => text(`context.repro_steps[${index}]`, step, limits.fieldChars));
+  const references = Object.entries(context.references ?? {});
+  if (references.length > limits.maxItems) {
+    throw new FeedbackInputError(`context.references has ${references.length} entries; the limit is ${limits.maxItems}.`);
+  }
+  for (const [key, value] of references) {
+    if (!REFERENCE_KEY_PATTERN.test(key)) {
+      throw new FeedbackInputError(
+        `context.references key "${key.slice(0, 80)}" must start with a letter and use only letters, digits, _ or - (at most 64).`,
+      );
+    }
+    text(`context.references.${key}`, value, limits.fieldChars);
+  }
   items("context.tool_calls", context.tool_calls);
   context.tool_calls?.forEach((call, index) => {
     text(`context.tool_calls[${index}].name`, call.name, limits.fieldChars);
@@ -204,13 +232,16 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
   const { prefix, identify, guard } = createRuntime(server, options);
   const limits = { ...DEFAULT_FEEDBACK_LIMITS, ...options.limits };
   const name = prefix + SUBMIT_TOOL.name;
+  for (const key of Object.keys(options.contextFields ?? {})) {
+    if (!REFERENCE_KEY_PATTERN.test(key)) throw new Error(`Invalid contextFields key: ${key}`);
+  }
 
   server.registerTool(
     name,
     {
       title: SUBMIT_TOOL.title,
       description: submitToolDescription(options.requireConfirmation),
-      inputSchema: submitFeedbackShape,
+      inputSchema: submitFeedbackShapeFor(options.contextFields),
       annotations: SUBMIT_TOOL.annotations,
     },
     (args, extra) =>
@@ -248,6 +279,14 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
           triaged_by: null,
           updated_at: created,
         };
+        if (options.attachContext) {
+          try {
+            const attached = await options.attachContext(record, extra);
+            if (attached && Object.keys(attached).length) record = { ...record, context: { ...record.context, server_context: attached } };
+          } catch (error) {
+            options.onError?.(error, name);
+          }
+        }
         if (options.redact) record = await options.redact(record);
 
         await options.store.insert(record);

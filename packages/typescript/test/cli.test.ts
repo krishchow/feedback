@@ -29,7 +29,7 @@ describe("mcp-feedback CLI", () => {
     expect(JSON.parse((await cli(store, "stats", "--subject", "alice")).out)).toEqual(await store.stats({ subject: "alice" }));
     const text = (await cli(store, "stats", "--text")).out;
     expect(text).toContain("total: 6");
-    expect(text).toContain("tool: create_meme=3, list_templates=2");
+    expect(text).toContain("tool: create_order=3, list_orders=2");
   });
 
   it("lists with filters and pagination", async () => {
@@ -40,7 +40,7 @@ describe("mcp-feedback CLI", () => {
     expect(second.items.map((item: any) => item.id)).toEqual([id(2), id(1)]);
     expect(second.next_cursor).toBeNull();
 
-    const text = (await cli(store, "list", "--tool", "create_meme", "--since", "2026-01-02", "--text")).out.split("\n");
+    const text = (await cli(store, "list", "--tool", "create_order", "--since", "2026-01-02", "--text")).out.split("\n");
     expect(text).toHaveLength(2);
     expect(text[0]).toContain(id(6));
     expect(text[0]).toContain("alice");
@@ -81,6 +81,15 @@ describe("mcp-feedback CLI", () => {
     expect(result.code).toBe(1);
     expect(JSON.parse(result.out).not_found).toEqual(["missing"]);
     expect((await store.get(id(1)))!.status).toBe("resolved");
+  });
+
+  it("filters by a reference", async () => {
+    const store = await seeded();
+    const listed = JSON.parse((await cli(store, "list", "--ref", "documentId=doc-1")).out);
+    expect(listed.items.map((item: any) => item.id)).toEqual([id(6), id(2)]);
+    expect(JSON.parse((await cli(store, "stats", "--ref", "jobId=job-9")).out).total).toBe(1);
+    expect(await cli(store, "list", "--ref", "documentId")).toMatchObject({ code: 2, err: expect.stringMatching(/--ref takes key=value/) });
+    expect(await cli(store, "list", "--ref", "1bad=x")).toMatchObject({ code: 2, err: expect.stringMatching(/reference key must start/) });
   });
 
   it("rejects bad input with exit code 2", async () => {

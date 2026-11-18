@@ -46,6 +46,7 @@ All filters are optional and combine with AND.
 | `tag` | `tags` contains the value |
 | `since` | `created_at >= since` |
 | `until` | `created_at < until` |
+| `reference` | `context.references[reference.key]` equals `reference.value` (the key is validated before it reaches the store) |
 
 Timestamps reach the store already in canonical form (`YYYY-MM-DDTHH:mm:ss.sssZ`), so they compare correctly as strings.
 

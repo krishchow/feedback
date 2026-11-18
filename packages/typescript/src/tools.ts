@@ -14,6 +14,27 @@ const toolCallShape = {
   is_error: z.boolean().optional().describe("Whether the call failed."),
 };
 
+/** Keys of `context.references`: a letter, then letters, digits, `_` or `-` (at most 64). */
+export const REFERENCE_KEY_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+
+const REFERENCES_DESCRIPTION =
+  "Identifiers of the objects involved (records, documents, jobs, generated outputs), keyed by what they are, " +
+  "so a reader can look them up and see what you saw. Include every relevant id you have.";
+
+/**
+ * The `context.references` input. Fields a host declares are listed with their descriptions; agents may add
+ * other string ids too.
+ */
+function referencesSchema(fields: Record<string, string> = {}) {
+  const declared = Object.entries(fields);
+  if (!declared.length) return z.record(z.string(), z.string()).optional().describe(REFERENCES_DESCRIPTION);
+  return z
+    .object(Object.fromEntries(declared.map(([key, description]) => [key, z.string().optional().describe(description)])))
+    .catchall(z.string())
+    .optional()
+    .describe(REFERENCES_DESCRIPTION);
+}
+
 const contextShape = {
   goal: z.string().optional().describe("What the user was trying to accomplish in this session."),
   expected: z.string().optional().describe("What you expected to happen."),
@@ -25,6 +46,17 @@ const contextShape = {
   excerpt: z.string().optional().describe("A short relevant excerpt of tool output or conversation."),
   metadata: z.record(z.string(), z.unknown()).optional().describe("Any other structured details."),
 };
+
+/** The submit tool's input, with any host-declared `context.references` fields. */
+export function submitFeedbackShapeFor(contextFields?: Record<string, string>) {
+  return {
+    ...submitFeedbackShape,
+    context: z
+      .object({ ...contextShape, references: referencesSchema(contextFields) })
+      .optional()
+      .describe("Session context that lets a reader act without asking you."),
+  };
+}
 
 export const submitFeedbackShape = {
   kind: z
@@ -40,7 +72,10 @@ export const submitFeedbackShape = {
     .optional()
     .describe("blocker: the task could not be completed. major: completed with significant trouble. Defaults to none."),
   tags: z.array(z.string().min(1)).optional().describe("Short labels for grouping."),
-  context: z.object(contextShape).optional().describe("Session context that lets a reader act without asking you."),
+  context: z
+    .object({ ...contextShape, references: referencesSchema() })
+    .optional()
+    .describe("Session context that lets a reader act without asking you."),
 };
 
 const filterShape = {
@@ -52,6 +87,10 @@ const filterShape = {
   tag: z.string().optional(),
   since: z.string().optional().describe("ISO 8601 timestamp; include feedback created at or after it."),
   until: z.string().optional().describe("ISO 8601 timestamp; include feedback created before it."),
+  reference: z
+    .object({ key: z.string(), value: z.string() })
+    .optional()
+    .describe("Only feedback whose context.references[key] equals value, e.g. every report about one record."),
 };
 
 export const listFeedbackShape = {
@@ -137,6 +176,8 @@ export function synthesizePromptText(prefix: string, args: { since?: string; foc
     `1. Call ${tool("feedback_stats")} to see volume by kind, status, severity and tool.`,
     `2. Page through ${tool("list_feedback")} until next_cursor is null. Read every record, not a sample.`,
     "3. Group records that describe the same underlying problem or request, even when worded differently.",
+    "   Records naming the same object in context.references often belong together; context.server_context is",
+    "   what the server recorded at the time (versions, object state), and is more reliable than the agent's account.",
     "4. For each group report: what is wrong or wanted, which tools are involved, how many records and distinct",
     "   submitters, the highest severity, one representative record id, and a concrete recommended change.",
     "5. Order groups by impact: blockers first, then by number of distinct submitters.",

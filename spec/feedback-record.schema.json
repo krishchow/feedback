@@ -78,7 +78,17 @@
         },
         "repro_steps": { "type": "array", "items": { "type": "string" } },
         "excerpt": { "type": "string" },
-        "metadata": { "type": "object" }
+        "metadata": { "type": "object" },
+        "references": {
+          "type": "object",
+          "description": "Ids of the objects involved, keyed by what they are (e.g. documentId, orderId). Supplied by the agent; hosts may declare the keys they expect.",
+          "propertyNames": { "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$" },
+          "additionalProperties": { "type": "string" }
+        },
+        "server_context": {
+          "type": "object",
+          "description": "Attached by the server when the feedback is submitted (versions, request ids, state of the referenced objects). Never taken from tool input."
+        }
       }
     },
     "identity": {

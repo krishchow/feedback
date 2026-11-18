@@ -1,6 +1,7 @@
 // Reader operations shared by the MCP reader tools and the CLI.
 
 import type { FeedbackStore } from "./store.js";
+import { REFERENCE_KEY_PATTERN } from "./tools.js";
 import type { FeedbackFilter, FeedbackPage, FeedbackRecord, FeedbackStats, FeedbackStatus } from "./types.js";
 
 /** A problem with the caller's input; its message is safe to show to the caller. */
@@ -11,6 +12,14 @@ function normalizeTimestamp(label: string, value: string | undefined): string | 
   const time = Date.parse(value);
   if (Number.isNaN(time)) throw new FeedbackInputError(`${label} is not a valid ISO 8601 timestamp.`);
   return new Date(time).toISOString();
+}
+
+function checkReference(reference: FeedbackFilter["reference"]): FeedbackFilter["reference"] {
+  if (reference === undefined) return undefined;
+  if (!REFERENCE_KEY_PATTERN.test(reference.key)) {
+    throw new FeedbackInputError("reference key must start with a letter and use only letters, digits, _ or - (at most 64).");
+  }
+  return { key: reference.key, value: reference.value };
 }
 
 /** Keeps only the filter fields that are set and puts timestamps in canonical form. */
@@ -26,6 +35,7 @@ export function normalizeFilter(args: FeedbackFilter): FeedbackFilter {
       tag: args.tag,
       since: normalizeTimestamp("since", args.since),
       until: normalizeTimestamp("until", args.until),
+      reference: checkReference(args.reference),
     }),
   ) as FeedbackFilter;
 }
