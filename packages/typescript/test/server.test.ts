@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  feedbackConfirmInstructions,
+  feedbackToolCatalog,
+  feedbackToolCatalogFor,
   fingerprintToken,
   memoryStore,
   registerFeedback,
@@ -117,6 +120,19 @@ describe("submit_feedback", () => {
     expect(response.isError).toBe(true);
     expect(response.text).toMatch(/authenticated/);
     expect((await store.stats({})).total).toBe(0);
+  });
+
+  it("asks agents to confirm with the user first when requireConfirmation is set", async () => {
+    const store = memoryStore();
+    const advertised = async (options: Partial<FeedbackOptions>) =>
+      (await (await submitter(store, options)).listTools()).tools.map(({ name, description }) => ({ name, description }));
+    expect(await advertised({})).toEqual(feedbackToolCatalog);
+    expect(await advertised({})).toEqual(feedbackToolCatalogFor());
+    const confirming = await advertised({ requireConfirmation: true, toolPrefix: "meme_" });
+    expect(confirming).toEqual(feedbackToolCatalogFor({ requireConfirmation: true, toolPrefix: "meme_" }));
+    expect(confirming[0]!.name).toBe("meme_submit_feedback");
+    expect(confirming[0]!.description).toMatch(/explicit confirmation/);
+    expect(feedbackConfirmInstructions).toMatch(/only after they explicitly confirm/);
   });
 
   it("keys token fingerprints when tokenFingerprintKey is set", async () => {

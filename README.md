@@ -86,6 +86,7 @@ registerFeedback(server, {
 | --- | --- |
 | `store` | Where records go. Required. |
 | `resolveIdentity` | Override identity fields for a request. |
+| `requireConfirmation` | Tell agents to file only after the user confirms the exact feedback. Use `feedbackConfirmInstructions` in place of `feedbackInstructions`, and `feedbackToolCatalogFor(options)` for catalogs. |
 | `requireIdentity` | Refuse submissions with no subject and no token fingerprint. |
 | `redact` | Scrub a record before it is stored. |
 | `limits` | Override size limits (see the spec for defaults). |

@@ -10,6 +10,7 @@ import type { FeedbackStore } from "./store.js";
 import {
   READER_TOOLS,
   SUBMIT_TOOL,
+  submitToolDescription,
   SYNTHESIZE_PROMPT,
   feedbackStatsShape,
   getFeedbackShape,
@@ -65,6 +66,11 @@ interface SharedOptions {
 }
 
 export interface FeedbackOptions extends SharedOptions {
+  /**
+   * Tell agents to file only after the user confirms the exact feedback. Pair it with
+   * `feedbackConfirmInstructions` in the server's instructions.
+   */
+  requireConfirmation?: boolean;
   /** Refuse submissions that carry neither a subject nor a token fingerprint. */
   requireIdentity?: boolean;
   /** Last chance to scrub a record before it is stored. */
@@ -178,7 +184,7 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
     name,
     {
       title: SUBMIT_TOOL.title,
-      description: SUBMIT_TOOL.description,
+      description: submitToolDescription(options.requireConfirmation),
       inputSchema: submitFeedbackShape,
       annotations: SUBMIT_TOOL.annotations,
     },

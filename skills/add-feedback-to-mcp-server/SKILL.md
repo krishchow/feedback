@@ -87,6 +87,8 @@ registerFeedback(server, {
 
 - Merge `feedbackToolCatalog` into any hand-written tool list, and update tests that assert tool names.
 - Set `requireIdentity: true` if anonymous feedback should be refused.
+- Set `requireConfirmation: true` if agents must show the user the exact feedback and get an explicit yes before filing, for example because feedback is shared or the server already asks for consent. Then use `feedbackConfirmInstructions` instead of `feedbackInstructions` (step 5) and `feedbackToolCatalogFor({ requireConfirmation: true })` for catalogs, and say the same in the server's skills.
+- If the server already has its own feedback tool or table, do not register a second one under the same names: migrate the existing records into the library's store (keeping the old table until the copy is verified), and carry over its policies, such as requiring confirmation.
 - Set `toolPrefix` if the server prefixes its tool names.
 
 ### 5. Tell agents to use it
@@ -95,7 +97,7 @@ Agents rarely call a tool nobody pointed them at. Update every place the server 
 
 - **The server's skills.** In each skill the server publishes for its users, add a feedback section from [references/feedback-section.md](references/feedback-section.md). Replace its generic examples with failure modes specific to this server's tools, and use the real tool name if there is a prefix. If one skill is the entry point and others branch from it, put the full section there and a one-line pointer in the rest. Also add feedback to the skill's `description` only if the skill is meant to trigger on "report a problem with <server>"; otherwise leave the description alone.
 - **Workflow steps inside those skills.** Where a skill already describes handling a failure ("if the job times out, retry once"), add "and file feedback" at that point. Guidance at the moment of failure works better than a section at the end.
-- **Server `instructions`.** Append `feedbackInstructions` from the package. This reaches agents that never load the skill.
+- **Server `instructions`.** Append `feedbackInstructions` from the package (`feedbackConfirmInstructions` with `requireConfirmation`). This reaches agents that never load the skill.
 - **Tool docs and catalog** the server publishes for humans: list `submit_feedback` and say what happens to reports.
 - **Version and release.** If the skill ships in a plugin or package with a version, bump it so installed copies update.
 

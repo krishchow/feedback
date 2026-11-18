@@ -31,6 +31,10 @@ A host MAY configure a prefix that is prepended to every tool and prompt name.
 
 `submit_feedback` accepts the input schema in `tools.json` and returns `{ id, created_at, status }` as structured content, with the same JSON as text content.
 
+A host MAY require that agents file only with the user's explicit confirmation. The implementation then appends this sentence to the tool's description, and SHOULD offer matching server instructions:
+
+> Only call it after showing the user the exact feedback you intend to submit and receiving their explicit confirmation; a complaint or request is not by itself permission.
+
 The implementation builds the record as follows:
 
 - `id`, `created_at`, `updated_at`, `identity`, `server`, `status` (`new`), `triage_note` (`null`) and `triaged_by` (`null`) are set by the server. Values for these in tool input MUST NOT be honoured.

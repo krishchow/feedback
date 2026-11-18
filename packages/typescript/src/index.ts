@@ -24,5 +24,11 @@ export {
   type FeedbackReaderOptions,
 } from "./register.js";
 export { FeedbackInputError, listPage, normalizeFilter, triageMany, type TriageOutcome } from "./reader.js";
-export { feedbackInstructions, feedbackToolCatalog, feedbackReaderToolCatalog } from "./tools.js";
+export {
+  feedbackInstructions,
+  feedbackConfirmInstructions,
+  feedbackToolCatalog,
+  feedbackToolCatalogFor,
+  feedbackReaderToolCatalog,
+} from "./tools.js";
 export { memoryStore } from "./stores/memory.js";

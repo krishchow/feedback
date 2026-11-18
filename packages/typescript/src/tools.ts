@@ -155,8 +155,28 @@ export const feedbackInstructions =
   "call submit_feedback once you have handled or been blocked on the user's request. Describe the goal, what you " +
   "expected, what happened and the tool calls involved, without secrets or personal data, and tell the user you filed it.";
 
+/** Appended to the submit tool's description when the host sets `requireConfirmation`. */
+export const CONFIRMATION_REQUIRED =
+  " Only call it after showing the user the exact feedback you intend to submit and receiving their explicit " +
+  "confirmation; a complaint or request is not by itself permission.";
+
+/** The `feedbackInstructions` counterpart for hosts that set `requireConfirmation`. */
+export const feedbackConfirmInstructions =
+  "If one of this server's tools fails, behaves unexpectedly, is confusing, or cannot do what the user needed, " +
+  "offer to file feedback: show the user the exact kind, title, body and context you would submit, and call " +
+  "submit_feedback only after they explicitly confirm. Leave out secrets and personal data.";
+
+export function submitToolDescription(requireConfirmation = false): string {
+  return SUBMIT_TOOL.description + (requireConfirmation ? CONFIRMATION_REQUIRED : "");
+}
+
 /** `{ name, description }` entries for hosts that publish a tool catalog. */
 export const feedbackToolCatalog = [{ name: SUBMIT_TOOL.name, description: SUBMIT_TOOL.description }];
+
+/** The catalog entry exactly as registerFeedback advertises it with these options. */
+export function feedbackToolCatalogFor(options: { requireConfirmation?: boolean; toolPrefix?: string } = {}) {
+  return [{ name: (options.toolPrefix ?? "") + SUBMIT_TOOL.name, description: submitToolDescription(options.requireConfirmation) }];
+}
 
 export const feedbackReaderToolCatalog = Object.values(READER_TOOLS).map(({ name, description }) => ({
   name,
