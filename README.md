@@ -125,3 +125,15 @@ pnpm typecheck
 pnpm gen:spec    # regenerate spec/tools.json, store-cases.json and sql/ after changing them in code
 pnpm build && pnpm --filter mcp-feedback-example-express smoke   # real HTTP round trip
 ```
+
+Try the CLI from a local build, exactly as `npx` would run the published package:
+
+```sh
+pnpm build && npx --package ./packages/typescript mcp-feedback stats --db ./feedback.db
+```
+
+Release from a clean, up-to-date `main`. This bumps the version, runs the checks, publishes to npm, then commits the bump, tags `v<version>` and pushes. If the publish fails, nothing is committed or pushed. Leave out the bump to publish the version already in `package.json`; add `--dry-run` to try it without publishing.
+
+```sh
+pnpm release patch --otp=123456    # or minor, major, x.y.z
+```
