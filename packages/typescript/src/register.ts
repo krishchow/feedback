@@ -116,6 +116,9 @@ function checkLimits(input: SubmitInput, limits: FeedbackLimits): void {
     }
   };
 
+  for (const field of ["title", "body"] as const) {
+    if (!input[field].trim()) throw new FeedbackInputError(`${field} is blank. Describe the problem and resubmit.`);
+  }
   text("title", input.title, limits.titleChars);
   text("body", input.body, limits.bodyChars);
   items("tags", input.tags);

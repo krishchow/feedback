@@ -157,6 +157,15 @@ describe("submit_feedback", () => {
     });
   });
 
+  it("rejects a blank title or body and stores nothing", async () => {
+    const store = memoryStore();
+    const client = await submitter(store);
+    const blank = await call(client, "submit_feedback", { ...submission, body: " \n " });
+    expect(blank).toMatchObject({ isError: true, text: "body is blank. Describe the problem and resubmit." });
+    expect((await call(client, "submit_feedback", { ...submission, title: "   " })).text).toMatch(/title is blank/);
+    expect((await store.stats({})).total).toBe(0);
+  });
+
   it("enforces size limits with an actionable message and stores nothing", async () => {
     const store = memoryStore();
     const client = await submitter(store, { limits: { bodyChars: 20, metadataBytes: 10 } });
