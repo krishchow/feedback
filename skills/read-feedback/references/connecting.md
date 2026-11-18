@@ -39,15 +39,28 @@ Reader tools connected to the session fail the same ways, as an MCP connection e
 
 Report the failure and the step the user needs to take; do not retry with other credentials.
 
-## Connecting the endpoint to the user's sessions
+## Connecting the reader tools to the user's sessions
 
-If the user wants the reader tools available directly in their sessions, they add the endpoint as an MCP server. This is their decision, because it stores a credential in their client configuration; give them the command rather than running it. For Claude Code:
+If the user wants the reader tools available directly in their sessions, rather than running CLI commands, they add an MCP server. This is their decision, because it puts a credential within reach of their client; give them the command rather than running it.
+
+**Recommended: the CLI as a local stdio server.** The token stays in their shell environment, which the server inherits, rather than in the client's configuration:
+
+```sh
+# MCP_FEEDBACK_TOKEN exported in the shell profile, not passed here
+claude mcp add <name>-feedback --scope user --env MCP_FEEDBACK_URL=https://<host>/<reader endpoint> -- npx -y mcp-feedback serve
+```
+
+- Add `--prefix <p>` after `serve` if the server set a tool prefix, and `--read-only` to leave out triage.
+- The same works without any reader endpoint, straight against a store: `-- npx -y mcp-feedback serve --db <path>` (or `--postgres <url>`); triage is then recorded as the local username, or `--by`.
+- If the tools do not appear, run `npx -y mcp-feedback stats` with the same environment: it fails with the same message the server writes to its stderr.
+
+**Alternative: connect the HTTP endpoint directly**, which stores the credential in their client configuration:
 
 ```sh
 claude mcp add --scope user --transport http <name>-feedback https://<host>/<reader endpoint> \
   --header "Authorization: Bearer ${MCP_FEEDBACK_TOKEN}"
 ```
 
-- The shell expands `${MCP_FEEDBACK_TOKEN}` when the command runs, so the credential is stored in their configuration. `--scope user` makes it available in every project; the default local scope limits it to this one. Never use `--scope project`, which writes it to `.mcp.json`, a file meant to be committed.
+- `--scope user` makes either kind available in every project; the default local scope limits it to this one. Never use `--scope project` with a credential, which writes it to `.mcp.json`, a file meant to be committed.
 - The tools appear in new sessions, or after reconnecting with `/mcp`.
-- Other clients take the same URL and header in their MCP server settings.
+- Other clients take the same command (stdio) or URL and header (HTTP) in their MCP server settings.

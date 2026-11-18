@@ -3,11 +3,13 @@
 // against the store or through a server's reader endpoint (--mcp).
 
 import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
 import { userInfo } from "node:os";
 import { fileURLToPath } from "node:url";
+import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
-import type { FeedbackReaderClient } from "./client.js";
-import { FeedbackInputError, listPage, normalizeFilter, triageMany } from "./reader.js";
+import type { FeedbackReaderClient } from "./reader.js";
+import { FeedbackInputError, normalizeFilter, storeReader } from "./reader.js";
 import type { FeedbackStore } from "./store.js";
 import {
   FEEDBACK_KINDS,
@@ -30,6 +32,8 @@ Commands:
   triage <id...>        Set --status and/or --note
   close <id...>         Mark resolved (or --dismiss), with an optional --note
   reopen <id...>        Set status back to new
+  serve                 Serve the reader tools as a stdio MCP server, for agent sessions
+                        (stdout carries the protocol; messages go to stderr)
 
 Source (one is required):
   --mcp <url>           A server's reader endpoint (or MCP_FEEDBACK_URL). Sends
@@ -50,6 +54,7 @@ Other:
   --note <text>         Triage note
   --clear-note          Remove the triage note
   --dismiss             With close: mark dismissed instead of resolved
+  --read-only           With serve: leave out update_feedback_triage
   --by <name>           Recorded as triaged_by (default: your username; with --mcp
                         the server records the credential's identity instead)
   --text                Human-readable output instead of JSON
@@ -58,6 +63,9 @@ Other:
 export interface CliIo {
   out: (line: string) => void;
   err: (line: string) => void;
+  /** Streams for serve; default to the process's own. */
+  stdin?: Readable;
+  stdout?: Writable;
   env: Record<string, string | undefined>;
   /** Test seam: supply the store instead of opening one from flags. */
   openStore?: () => Promise<FeedbackStore>;
@@ -80,21 +88,6 @@ async function openStore(values: Record<string, unknown>, env: CliIo["env"]): Pr
     return { ...postgresStore({ client: pool, table, migrate: false }), close: () => pool.end() };
   }
   throw new FeedbackInputError("No source given. Pass --mcp <url>, --db <path> or --postgres <url>.");
-}
-
-/** The same reader operations over a store the CLI opened itself. */
-function storeReader(store: FeedbackStore, by: string): FeedbackReaderClient {
-  return {
-    stats: (filter) => store.stats(filter),
-    list: (query) => listPage(store, query),
-    get: async (id) => {
-      const record = await store.get(id);
-      if (!record) throw new FeedbackInputError(`No feedback with id ${id}.`);
-      return record;
-    },
-    triage: (ids, change) => triageMany(store, ids, { ...change, by }),
-    close: async () => store.close?.(),
-  };
 }
 
 async function openReader(values: Record<string, unknown>, io: CliIo): Promise<FeedbackReaderClient> {
@@ -147,6 +140,31 @@ function detail(record: FeedbackRecord): string {
   return lines.join("\n");
 }
 
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
+
+/** Serves the reader tools over stdio until the client closes stdin. */
+async function serve(reader: FeedbackReaderClient, values: Record<string, unknown>, io: CliIo): Promise<number> {
+  const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+  const { StdioServerTransport } = await import("@modelcontextprotocol/sdk/server/stdio.js");
+  const { registerFeedbackReader } = await import("./register.js");
+  const server = new McpServer({ name: "mcp-feedback", version });
+  registerFeedbackReader(server, {
+    reader,
+    readOnly: values["read-only"] === true,
+    onError: (error, tool) => io.err(`mcp-feedback: ${tool}: ${error instanceof Error ? error.message : String(error)}`),
+  });
+  const stdin = io.stdin ?? process.stdin;
+  const closed = new Promise<void>((resolve) => {
+    stdin.once("end", resolve);
+    stdin.once("close", resolve);
+  });
+  await server.connect(new StdioServerTransport(stdin, io.stdout ?? process.stdout));
+  io.err("mcp-feedback: serving the feedback reader tools over stdio");
+  await closed;
+  await server.close();
+  return 0;
+}
+
 /** Runs the CLI and resolves the process exit code. */
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   let reader: FeedbackReaderClient | undefined;
@@ -177,6 +195,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
           dismiss: { type: "boolean" },
           by: { type: "string" },
           text: { type: "boolean" },
+          "read-only": { type: "boolean" },
           help: { type: "boolean", short: "h" },
         },
       });
@@ -190,6 +209,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       return command || values.help ? 0 : 2;
     }
 
+    if (values["read-only"] && command !== "serve") throw new FeedbackInputError("--read-only only applies to serve.");
     const status = oneOf("status", values.status, FEEDBACK_STATUSES);
     const filter: FeedbackFilter = normalizeFilter({
       kind: oneOf("kind", values.kind, FEEDBACK_KINDS),
@@ -271,6 +291,8 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         return await triage({ status: values.dismiss ? "dismissed" : "resolved" });
       case "reopen":
         return await triage({ status: "new" });
+      case "serve":
+        return await serve(await open(), values, io);
       default:
         throw new FeedbackInputError(`Unknown command: ${command}. Run mcp-feedback --help.`);
     }

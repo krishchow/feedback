@@ -9,11 +9,11 @@ Feedback that other agents filed while using a server is read through the server
 
 Use the first way in that works:
 
-1. **Reader tools in this session.** If `list_feedback` and the other tools below are available, use them.
+1. **Reader tools in this session.** If `list_feedback` and the other tools below are available (from a reader endpoint, or from `mcp-feedback serve` running as a local stdio server), use them.
 2. **The CLI against the reader endpoint**, when `MCP_FEEDBACK_URL` and `MCP_FEEDBACK_TOKEN` are set: `npx -y mcp-feedback stats`.
 3. **The CLI straight against the store**, for servers without a reader endpoint: `npx -y mcp-feedback stats --db <path>` or `--postgres <url>`.
 
-If none is available, or a call fails with `401`, `Authentication required` or `Could not connect`, read [references/connecting.md](references/connecting.md) before trying anything else. It covers where the URL and credential come from, how the CLI passes the credential, and how the user can connect the endpoint to their sessions. Do not guess credentials or fall back to the agent endpoint.
+If none is available, or a call fails with `401`, `Authentication required` or `Could not connect`, read [references/connecting.md](references/connecting.md) before trying anything else. It covers where the URL and credential come from, how the CLI passes the credential, and how the user can connect the reader tools to their sessions (best as a local stdio server with `mcp-feedback serve`). Do not guess credentials or fall back to the agent endpoint.
 
 | | MCP reader tools | CLI |
 | --- | --- | --- |

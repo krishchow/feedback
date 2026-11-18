@@ -1,41 +1,11 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
 import { connectFeedbackReader, FeedbackReaderError, type FeedbackReaderClient } from "../src/client.js";
-import { memoryStore, registerFeedbackReader, type FeedbackRecord, type FeedbackStore } from "../src/index.js";
+import { memoryStore, type FeedbackRecord, type FeedbackStore } from "../src/index.js";
+import { READER_TOKEN as TOKEN, readerEndpoint } from "./helpers.js";
 import { conformanceCases, conformanceRecords } from "../src/testing.js";
 
-const TOKEN = "reader-token";
 const id = (n: number) => conformanceRecords[n - 1]!.id;
-
-// A stateless Streamable HTTP reader endpoint, as a host would mount it.
-async function readerEndpoint(store: FeedbackStore, toolPrefix?: string) {
-  const http: Server = createServer(async (req, res) => {
-    if (req.url !== "/mcp") {
-      res.writeHead(404).end();
-      return;
-    }
-    if (req.headers.authorization !== `Bearer ${TOKEN}`) {
-      res.writeHead(401).end();
-      return;
-    }
-    (req as typeof req & { auth?: unknown }).auth = { token: TOKEN, clientId: "maintainers", scopes: [], extra: { sub: "reader" } };
-    const server = new McpServer({ name: "reader", version: "1.0.0" });
-    registerFeedbackReader(server, { store, toolPrefix });
-    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-    res.on("close", () => {
-      void transport.close();
-      void server.close();
-    });
-    await server.connect(transport);
-    await transport.handleRequest(req, res);
-  });
-  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
-  return { url: `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`, close: () => new Promise((r) => http.close(r)) };
-}
 
 async function seeded(extra = 0): Promise<FeedbackStore> {
   const store = memoryStore();

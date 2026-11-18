@@ -5,7 +5,13 @@ import {
   type FeedbackRequestExtra,
   type ResolveIdentity,
 } from "./identity.js";
-import { FeedbackInputError, listPage, normalizeFilter, triageMany } from "./reader.js";
+import {
+  FeedbackInputError,
+  FeedbackReaderError,
+  normalizeFilter,
+  storeReader,
+  type FeedbackReaderClient,
+} from "./reader.js";
 import type { FeedbackStore } from "./store.js";
 import {
   READER_TOOLS,
@@ -50,8 +56,6 @@ export const DEFAULT_FEEDBACK_LIMITS: FeedbackLimits = {
 };
 
 interface SharedOptions {
-  /** Created once at module level and shared across requests. */
-  store: FeedbackStore;
   /** Maps a request onto an identity; overrides what the default resolver finds. */
   resolveIdentity?: ResolveIdentity;
   /** Prepended to every tool and prompt name, e.g. `"meme_"`. */
@@ -66,6 +70,8 @@ interface SharedOptions {
 }
 
 export interface FeedbackOptions extends SharedOptions {
+  /** Created once at module level and shared across requests. */
+  store: FeedbackStore;
   /**
    * Tell agents to file only after the user confirms the exact feedback. Pair it with
    * `feedbackConfirmInstructions` in the server's instructions.
@@ -80,10 +86,24 @@ export interface FeedbackOptions extends SharedOptions {
   serverInfo?: Partial<FeedbackServerInfo>;
 }
 
-export interface FeedbackReaderOptions extends SharedOptions {
+export type FeedbackReaderOptions = SharedOptions & {
   /** Leave out `update_feedback_triage`, so the reader can look but not change anything. */
   readOnly?: boolean;
-}
+} & (
+  | {
+      /** Created once at module level and shared across requests. */
+      store: FeedbackStore;
+      reader?: never;
+    }
+  | {
+      /**
+       * Serve another source instead of a store, e.g. connectFeedbackReader() to re-serve a
+       * remote reader endpoint. Its errors are shown to the caller as they are.
+       */
+      reader: FeedbackReaderClient;
+      store?: never;
+    }
+);
 
 
 type SubmitInput = {
@@ -169,7 +189,9 @@ function createRuntime(server: McpServer, options: SharedOptions) {
       return result(await run());
     } catch (error) {
       if (!(error instanceof FeedbackInputError)) options.onError?.(error, tool);
-      const text = error instanceof FeedbackInputError ? error.message : "The feedback store is unavailable. Try again later.";
+      // A remote reader's errors carry the remote server's own, already safe, messages.
+      const shown = error instanceof FeedbackInputError || error instanceof FeedbackReaderError;
+      const text = shown ? error.message : "The feedback store is unavailable. Try again later.";
       return { isError: true, content: [{ type: "text" as const, text }] };
     }
   };
@@ -241,7 +263,7 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
  */
 export function registerFeedbackReader(server: McpServer, options: FeedbackReaderOptions): void {
   const { prefix, identify, guard } = createRuntime(server, options);
-  const { store } = options;
+  const reader = options.reader ?? storeReader(options.store);
   const names = {
     list: prefix + READER_TOOLS.list.name,
     get: prefix + READER_TOOLS.get.name,
@@ -254,27 +276,25 @@ export function registerFeedbackReader(server: McpServer, options: FeedbackReade
     config(READER_TOOLS.list, listFeedbackShape),
     (args) =>
       guard(names.list, async () => {
-        const page = await listPage(store, args);
+        const page = await reader.list({ ...args, limit: args.limit ?? 25 });
         return { ...page };
       }),
   );
 
   server.registerTool(names.get, config(READER_TOOLS.get, getFeedbackShape), (args) =>
     guard(names.get, async () => {
-      const record = await store.get(args.id);
-      if (!record) throw new FeedbackInputError(`No feedback with id ${args.id}.`);
-      return { ...record };
+      return { ...(await reader.get(args.id)) };
     }),
   );
 
   if (!options.readOnly) {
     server.registerTool(names.triage, config(READER_TOOLS.triage, updateFeedbackTriageShape), (args, extra) =>
       guard(names.triage, async () => {
-        const reader = await identify(extra);
-        const outcome = await triageMany(store, args.ids, {
+        const caller = await identify(extra);
+        const outcome = await reader.triage(args.ids, {
           status: args.status,
           note: args.note,
-          by: reader.subject ?? reader.client_id ?? reader.token_fingerprint,
+          by: caller.subject ?? caller.client_id ?? caller.token_fingerprint,
         });
         return { ...outcome };
       }),
@@ -282,7 +302,7 @@ export function registerFeedbackReader(server: McpServer, options: FeedbackReade
   }
 
   server.registerTool(names.stats, config(READER_TOOLS.stats, feedbackStatsShape), (args) =>
-    guard(names.stats, async () => ({ ...(await store.stats(normalizeFilter(args))) })),
+    guard(names.stats, async () => ({ ...(await reader.stats(normalizeFilter(args))) })),
   );
 
   server.registerPrompt(

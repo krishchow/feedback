@@ -59,9 +59,9 @@ import { postgresStore } from "mcp-feedback/postgres";
 const feedbackStore = postgresStore({ client: pool });
 ```
 
-Stores open lazily, so this does not touch the database at import. If the project manages its schema with migrations or an ORM, the table must be part of that schema and the store must run with `migrate: false`; otherwise a schema-sync tool may try to drop a table it does not know.
+Stores open lazily, so this does not touch the database at import. On first use they create their table and indexes if missing (`CREATE ... IF NOT EXISTS`); leave that on. If the project manages its schema with migrations or an ORM, also make the table part of that schema, or a schema-sync tool may try to drop a table it does not know. Keep the store's own creation on as well: schema tools often reach only the development database (Replit's `drizzle-kit push` in `post-merge.sh`, for one), and production then starts without the table. Pass `migrate: false` only when the database user cannot create tables and migrations are known to reach every environment.
 
-- **Drizzle:** export the package's table from the project's schema instead of copying it; it is kept identical to the store's own DDL.
+- **Drizzle:** export the package's table from the project's schema instead of copying it; tests keep it identical to the store's own DDL, so the two never disagree.
 
   ```ts
   export { mcpFeedbackTable } from "mcp-feedback/drizzle"; // or feedbackTable("custom_name")

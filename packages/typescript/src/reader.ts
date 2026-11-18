@@ -1,7 +1,7 @@
 // Reader operations shared by the MCP reader tools and the CLI.
 
 import type { FeedbackStore } from "./store.js";
-import type { FeedbackFilter, FeedbackPage, FeedbackRecord, FeedbackStatus } from "./types.js";
+import type { FeedbackFilter, FeedbackPage, FeedbackRecord, FeedbackStats, FeedbackStatus } from "./types.js";
 
 /** A problem with the caller's input; its message is safe to show to the caller. */
 export class FeedbackInputError extends Error {}
@@ -71,4 +71,46 @@ export async function triageMany(
     else outcome.not_found.push(id);
   }
   return outcome;
+}
+
+/** A failure reaching a remote reader endpoint or reported by its tools. `status` is the HTTP status, when there was one. */
+export class FeedbackReaderError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * The reader operations, wherever the feedback lives: a store opened in this
+ * process (storeReader) or a server's reader endpoint (connectFeedbackReader).
+ */
+export interface FeedbackReaderClient {
+  stats(filter: FeedbackFilter): Promise<FeedbackStats>;
+  list(query: FeedbackFilter & { limit: number; cursor?: string }): Promise<FeedbackPage>;
+  /** Rejects when the id is unknown. */
+  get(id: string): Promise<FeedbackRecord>;
+  /**
+   * `by` is recorded as triaged_by where this side decides it (a store). A remote
+   * endpoint records its caller's identity instead and ignores it.
+   */
+  triage(ids: string[], change: { status?: FeedbackStatus; note?: string | null; by?: string | null }): Promise<TriageOutcome>;
+  close(): Promise<void>;
+}
+
+/** Reader operations straight against a store. `defaultBy` is used when a triage gives no `by`. */
+export function storeReader(store: FeedbackStore, defaultBy: string | null = null): FeedbackReaderClient {
+  return {
+    stats: (filter) => store.stats(normalizeFilter(filter)),
+    list: (query) => listPage(store, query),
+    get: async (id) => {
+      const record = await store.get(id);
+      if (!record) throw new FeedbackInputError(`No feedback with id ${id}.`);
+      return record;
+    },
+    triage: (ids, change) => triageMany(store, ids, { status: change.status, note: change.note, by: change.by ?? defaultBy }),
+    close: async () => store.close?.(),
+  };
 }

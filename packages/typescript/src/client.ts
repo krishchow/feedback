@@ -4,21 +4,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { READER_TOOLS } from "./tools.js";
-import type { TriageOutcome } from "./reader.js";
-import type { FeedbackFilter, FeedbackPage, FeedbackRecord, FeedbackStats, FeedbackStatus } from "./types.js";
+import { FeedbackReaderError, type FeedbackReaderClient } from "./reader.js";
+
+export { FeedbackReaderError, type FeedbackReaderClient };
 
 /** The reader tools cap a page at this size; larger requests are clamped and continue by cursor. */
 export const READER_PAGE_LIMIT = 100;
-
-/** A failure reaching the reader endpoint or reported by its tools. `status` is the HTTP status, when there was one. */
-export class FeedbackReaderError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
-    super(message);
-  }
-}
 
 const HTTP_HINTS: Record<number, string> = {
   401: "the credential is missing or was refused",
@@ -26,16 +17,6 @@ const HTTP_HINTS: Record<number, string> = {
   404: "no MCP endpoint at this URL",
   405: "no MCP endpoint at this URL",
 };
-
-export interface FeedbackReaderClient {
-  stats(filter: FeedbackFilter): Promise<FeedbackStats>;
-  list(query: FeedbackFilter & { limit: number; cursor?: string }): Promise<FeedbackPage>;
-  /** Rejects with FeedbackReaderError when the id is unknown. */
-  get(id: string): Promise<FeedbackRecord>;
-  /** The server records who triaged from the credential, and sets updated_at. */
-  triage(ids: string[], change: { status?: FeedbackStatus; note?: string | null }): Promise<TriageOutcome>;
-  close(): Promise<void>;
-}
 
 export interface FeedbackReaderClientOptions {
   /** Streamable HTTP URL of the endpoint that has the reader tools mounted. */

@@ -62,6 +62,14 @@ mcp-feedback close <id> --dismiss --note "Working as intended"
 mcp-feedback reopen <id>
 ```
 
+`mcp-feedback serve` runs the reader tools as a **stdio MCP server**, in front of any of those sources, so an agent session can read and triage feedback without connecting to a remote HTTP endpoint itself. Messages go to stderr; stdout carries the protocol. Add `--read-only` to leave out triage. For Claude Code:
+
+```sh
+claude mcp add memecp-feedback --scope user --env MCP_FEEDBACK_URL=https://example.com/mcp/feedback -- npx -y mcp-feedback serve
+```
+
+The server inherits the environment Claude Code starts in, so `MCP_FEEDBACK_TOKEN` exported in your shell reaches it without being written into the client's configuration. With a store (`serve --db` or `--postgres`), triage is recorded as `--by` or your username.
+
 `MCP_FEEDBACK_DB` and `MCP_FEEDBACK_POSTGRES_URL` set the store from the environment. With a reader endpoint, pass `--prefix` if the server set a `toolPrefix`; `--by` does not apply, because the server records who triaged from the credential. The same client is available in code as `connectFeedbackReader` from `mcp-feedback/client`. Output is JSON unless you pass `--text`. Exit code 2 means bad input; 1 means a failure or an id that was not found.
 
 Append `feedbackInstructions` to your server's `instructions` so agents know when to file. If you publish a tool catalog, merge in `feedbackToolCatalog`.
@@ -100,8 +108,8 @@ registerFeedback(server, {
 | Store | Import | Notes |
 | --- | --- | --- |
 | SQLite | `mcp-feedback/sqlite` | Default. Uses Node's built-in `node:sqlite`, so there is no native module to install. On Node versions where that module is still experimental, Node prints a warning. |
-| Postgres | `mcp-feedback/postgres` | `postgresStore({ client: pool })` with any client that has `query(text, params)`, such as a `pg.Pool`. Timestamps are `TIMESTAMPTZ`. Pass `migrate: false` if the table is created by your own migrations. |
-| Drizzle schema | `mcp-feedback/drizzle` | `mcpFeedbackTable` (or `feedbackTable(name)`) to export from your Drizzle schema, so `drizzle-kit` creates the table and never drops it. Use with `postgresStore({ client: pool, migrate: false })`. Tests keep it identical to `spec/sql/postgres.sql`. |
+| Postgres | `mcp-feedback/postgres` | `postgresStore({ client: pool })` with any client that has `query(text, params)`, such as a `pg.Pool`. Timestamps are `TIMESTAMPTZ`. Creates its table and indexes on first use if missing; pass `migrate: false` only if the database user cannot create tables and your migrations reach every environment. |
+| Drizzle schema | `mcp-feedback/drizzle` | `mcpFeedbackTable` (or `feedbackTable(name)`) to export from your Drizzle schema, so `drizzle-kit` creates the table and never drops it. Tests keep it identical to the store's own DDL (`spec/sql/postgres.sql`), so keep the store's table creation on as well: it covers databases your schema tool does not reach. |
 | Memory | `mcp-feedback` | `memoryStore()`, for tests. |
 
 To write your own, implement `FeedbackStore` and check it with the conformance suite:
