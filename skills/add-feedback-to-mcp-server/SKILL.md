@@ -41,7 +41,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 (req as Request & { auth?: AuthInfo }).auth = { token, clientId: "<client or tenant id>", scopes: [], extra: { sub: "<user id if known>" } };
 ```
 
-Express's `Request` type has no `auth` field, hence the cast. If every caller shares one credential, records cannot tell callers apart: say so in the server's docs, and supply `subject` through `resolveIdentity` if the server knows who is calling some other way.
+Express's `Request` type has no `auth` field, hence the cast. If the server will have a reader endpoint (step 6), the same middleware guards it with a different credential and sets a different `clientId` there: that id is what records show as `triaged_by`. Refuse requests when a credential is not configured rather than letting them through, and do not let the two credentials be the same value. If every caller shares one credential, records cannot tell callers apart: say so in the server's docs, and supply `subject` through `resolveIdentity` if the server knows who is calling some other way.
 
 Stdio servers have no per-request auth; pass `resolveIdentity` to supply a subject (for example from an environment variable) or accept null identity.
 
@@ -88,7 +88,24 @@ registerFeedback(server, {
 - Merge `feedbackToolCatalog` into any hand-written tool list, and update tests that assert tool names.
 - Set `requireIdentity: true` if anonymous feedback should be refused.
 - Set `requireConfirmation: true` if agents must show the user the exact feedback and get an explicit yes before filing, for example because feedback is shared or the server already asks for consent. Then use `feedbackConfirmInstructions` instead of `feedbackInstructions` (step 5) and `feedbackToolCatalogFor({ requireConfirmation: true })` for catalogs, and say the same in the server's skills.
-- Help readers rebuild what happened. List the kinds of objects this server's tools create or act on (whatever they are: orders, documents, jobs, records) and declare the ids that pin a problem down with `contextFields: { <name>Id: "<what it is>" }`; agents then see them in the tool's input and fill them into `context.references`. Readers can pull up every report about one object with `--ref <name>Id=<id>`. If the server can describe the situation better than the agent (its version, a request id, the current state of a referenced object), return that from `attachContext(record, extra)`; it is stored as `context.server_context` and agents cannot forge it. Keep it small and free of secrets and personal data, and do not let a slow lookup hold up the response.
+- Help readers rebuild what happened. List the kinds of objects this server's tools create or act on (whatever they are: orders, documents, jobs, records) and declare the ids that pin a problem down with `contextFields: { <name>Id: "<what it is>" }`; agents then see them in the tool's input and fill them into `context.references`. Readers can pull up every report about one object with `--ref <name>Id=<id>`. If the server can describe the situation better than the agent (its version, a request id, the current state of a referenced object), return that from `attachContext(record, extra)`; it is stored as `context.server_context` and agents cannot forge it. Keep it small and free of secrets and personal data (ids, statuses and sizes, not user content), and do not let a slow lookup hold up the response:
+
+  ```ts
+  attachContext: async (record) => {
+    const { orderId } = record.context.references ?? {};
+    if (!orderId) return undefined;
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<Record<string, unknown>>((resolve) => {
+      timer = setTimeout(() => resolve({ snapshotTimedOut: true }), 2000);
+    });
+    try {
+      return await Promise.race([snapshotOrder(orderId), timedOut]); // { order: { id, status, ... } } or { order: { id, found: false } }
+    } finally {
+      clearTimeout(timer);
+    }
+  },
+  ```
+
 - If the server already has its own feedback tool or table, do not register a second one under the same names: migrate the existing records into the library's store (keeping the old table until the copy is verified), and carry over its policies, such as requiring confirmation.
 - Set `toolPrefix` if the server prefixes its tool names.
 
@@ -98,8 +115,8 @@ Agents rarely call a tool nobody pointed them at. Update every place the server 
 
 - **The server's skills.** In each skill the server publishes for its users, add a feedback section from [references/feedback-section.md](references/feedback-section.md). Replace its generic examples with failure modes specific to this server's tools, and use the real tool name if there is a prefix. If one skill is the entry point and others branch from it, put the full section there and a one-line pointer in the rest. Also add feedback to the skill's `description` only if the skill is meant to trigger on "report a problem with <server>"; otherwise leave the description alone.
 - **Workflow steps inside those skills.** Where a skill already describes handling a failure ("if the job times out, retry once"), add "and file feedback" at that point. Guidance at the moment of failure works better than a section at the end.
-- **Server `instructions`.** Append `feedbackInstructions` from the package (`feedbackConfirmInstructions` with `requireConfirmation`). This reaches agents that never load the skill.
-- **Tool docs and catalog** the server publishes for humans: list `submit_feedback` and say what happens to reports.
+- **Server `instructions`.** Append `feedbackInstructions` from the package (`feedbackConfirmInstructions` with `requireConfirmation`). This reaches agents that never load the skill. If the server declared `contextFields`, add one sentence before it naming those ids and saying to put the ones the agent knows in `context.references`.
+- **Tool docs and catalog** the server publishes for humans: list `submit_feedback` and say what happens to reports. If a script generates the catalog by reading the source, keep the options to `feedbackToolCatalogFor` as literals it can read.
 - **Version and release.** If the skill ships in a plugin or package with a version, bump it so installed copies update.
 
 If the server publishes no skill, the `instructions` string is enough; do not create a skill just for feedback.
@@ -118,13 +135,19 @@ Ask the user if they have not said. For a deployed server, recommend a reader en
 
 Document whichever you choose in the server's own docs: the URL or store, where the credential comes from, and the drain loop (`stats`, `list --status new`, `close <ids> --note`).
 
-The people and agents who read it use this plugin's `read-feedback` skill.
+The people and agents who read it use this plugin's `read-feedback` skill, which covers how to connect, page, group, triage and close out for any server. What it cannot know is this server: which path and credential, which deployment, what the reference ids mean, and when a fix counts as released. Finish by running this plugin's `set-up-feedback-reading` skill, which writes those facts into the project as a short local reference, so the sessions that later drain the queue do not have to work them out again.
 
 ### 7. Verify
 
 - List tools with a client and confirm `submit_feedback` is there, and that reader tools are absent from the agent-facing server.
 - Submit one record, read it back with the CLI or a reader tool, and check that `identity` has the client id or subject you expect and no raw token.
-- Run the server's existing tests.
+- Run the server's existing tests, and if the server tests its endpoints, add these with `memoryStore()` in place of the real store:
+  - the agent endpoint lists `submit_feedback` and none of the reader tools
+  - the reader endpoint refuses a missing credential and the agent credential
+  - a submitted record has the expected `identity.client_id` and a `token_fingerprint` that is not the token
+  - a blank title or body is rejected and nothing is stored
+  - with `contextFields`, `list_feedback` filtered by a reference returns the record, and nothing for another id
+  - `update_feedback_triage` records the maintainer's identity as `triaged_by`
 - Re-read each updated skill as an agent would: is it clear when to file, and is the tool name right?
 
 ## Do not
@@ -132,3 +155,4 @@ The people and agents who read it use this plugin's `read-feedback` skill.
 - Create the store per request.
 - Accept identity from tool arguments or let the agent pass a user id.
 - Put reader tools behind the same credential agents use.
+- Copy the `read-feedback` skill's instructions into the server's own skills or docs. They go stale with the next release; `set-up-feedback-reading` writes only what is particular to the project.

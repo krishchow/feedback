@@ -28,6 +28,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -62,7 +63,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "gen:spec": "UPDATE_SPEC=1 vitest run test/spec.test.ts",
-    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
+    "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build",
+    "prepack": "node -e \"const fs=require('node:fs');fs.rmSync('skills',{recursive:true,force:true});fs.cpSync('../../skills','skills',{recursive:true})\"",
+    "postpack": "node -e \"require('node:fs').rmSync('skills',{recursive:true,force:true})\""
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",

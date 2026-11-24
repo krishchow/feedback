@@ -47,7 +47,14 @@ export function createApp({ agentToken, readerToken, dbPath }) {
       server.registerTool("echo", { description: "Repeat text.", inputSchema: { text: z.string() } }, ({ text }) => ({
         content: [{ type: "text", text }],
       }));
-      registerFeedback(server, { store, onError: (error, tool) => console.error(tool, error) });
+      registerFeedback(server, {
+        store,
+        // Ids agents are asked to put in context.references; readers filter on them (--ref requestId=...).
+        contextFields: { requestId: "The id of the request the problem involved, if the user gave one." },
+        // What the server knows and the agent does not, stored as context.server_context.
+        attachContext: () => ({ node: process.version }),
+        onError: (error, tool) => console.error(tool, error),
+      });
       return server;
     }),
   );

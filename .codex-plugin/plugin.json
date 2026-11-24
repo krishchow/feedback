@@ -1,7 +1,7 @@
 {
   "name": "mcp-feedback",
-  "version": "0.1.0",
-  "description": "Agent feedback for MCP servers: one skill for adding the mcp-feedback library to a server and updating the server's own skills to use it, and one for reading and closing out what was collected, over the mcp-feedback CLI or MCP reader tools.",
+  "version": "0.5.0",
+  "description": "Agent feedback for MCP servers: skills for adding the mcp-feedback library to a server and updating the server's own skills to use it, for recording a project's own facts about where its feedback is read, and for reading, working through and closing out what was collected, over the mcp-feedback CLI or MCP reader tools.",
   "author": {
     "name": "krishchow"
   },
@@ -13,13 +13,14 @@
   "interface": {
     "displayName": "mcp-feedback",
     "shortDescription": "Collect and act on agent feedback for MCP servers",
-    "longDescription": "Adds a feedback loop to MCP servers. Agents using a server file structured feedback about failures, friction and missing capabilities; each report is tied to the authenticated caller and stored in SQLite, Postgres or a store you write. One skill covers integrating the library into a server and updating the server's own skills so agents file good feedback; the other covers reading, clustering and closing out what was collected.",
+    "longDescription": "Adds a feedback loop to MCP servers. Agents using a server file structured feedback about failures, friction and missing capabilities; each report is tied to the authenticated caller and stored in SQLite, Postgres or a store you write. One skill covers integrating the library into a server and updating the server's own skills so agents file good feedback; one records a project's own facts about where its feedback is read; one covers reading, clustering, working through and closing out what was collected.",
     "developerName": "krishchow",
     "category": "Developer Tools",
     "capabilities": ["Read", "Write"],
     "websiteURL": "https://github.com/krishchow/feedback",
     "defaultPrompt": [
       "Add agent feedback to this MCP server",
+      "Set this project up for reading its feedback",
       "Summarize the feedback agents filed this week",
       "Close out the feedback we fixed in the last release"
     ]

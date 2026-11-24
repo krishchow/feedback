@@ -7,6 +7,8 @@ Read this when the reader tools are not in the session, the CLI has nothing to c
 - **The reader endpoint URL.** A separate MCP endpoint on the server, for example `https://<host>/api/mcp-admin` or `https://<host>/mcp/feedback`. Look in the server's docs (often `docs/mcp.md` or the README, under "feedback") before asking. It is never the endpoint agents use for the server's own tools.
 - **The maintainer credential** that endpoint accepts, usually the server's administrator token. The user supplies it; never search for it in files, logs or other credentials, and never print it.
 
+- **The right deployment.** A server's development or preview copy and its published one usually keep separate feedback. Read the one the user means, normally the published one, and say which host you read. Hosting platforms and agent harnesses sometimes have a feedback inbox of their own; that is unrelated to this one.
+
 If the server has no reader endpoint, it may still allow reading straight from its store with database access (`--db` or `--postgres`); otherwise the maintainers must add one (see the `add-feedback-to-mcp-server` skill, step 6).
 
 ## The CLI: environment variables
@@ -53,6 +55,22 @@ claude mcp add <name>-feedback --scope user --env MCP_FEEDBACK_URL=https://<host
 - Add `--prefix <p>` after `serve` if the server set a tool prefix, and `--read-only` to leave out triage.
 - The same works without any reader endpoint, straight against a store: `-- npx -y mcp-feedback serve --db <path>` (or `--postgres <url>`); triage is then recorded as the local username, or `--by`.
 - If the tools do not appear, run `npx -y mcp-feedback stats` with the same environment: it fails with the same message the server writes to its stderr.
+- The MCP client starts and owns a stdio server. Running `mcp-feedback serve` yourself in a shell, in the background or otherwise, connects nothing to the session; if the client cannot be given a new server now, use the CLI commands instead.
+- `serve` needs 0.5.0 or later. `mcp-feedback@latest` makes `npx` fetch the current release rather than reuse an older copy it has cached.
+
+For a client configured with JSON, the same server looks like this. The URL is not a secret and goes in the file; the token is not written there, and reaches the server from the environment the client was started in:
+
+```json
+{
+  "mcpServers": {
+    "<name>-feedback": {
+      "command": "npx",
+      "args": ["-y", "mcp-feedback@latest", "serve"],
+      "env": { "MCP_FEEDBACK_URL": "https://<host>/<reader endpoint>" }
+    }
+  }
+}
+```
 
 **Alternative: connect the HTTP endpoint directly**, which stores the credential in their client configuration:
 

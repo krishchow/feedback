@@ -10,12 +10,15 @@
 // npm asks for two-factor authentication.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pkgDir = `${root}packages/typescript`;
 const pkgJson = `${pkgDir}/package.json`;
+// The Codex plugin manifest states a version, kept the same as the package's. The Claude Code one states
+// none, so installed skills follow the repository's latest commit.
+const manifests = [`${root}.codex-plugin/plugin.json`];
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const dryRun = args.includes("--dry-run");
@@ -45,7 +48,10 @@ if (read("git", ["rev-parse", "HEAD"]) !== read("git", ["rev-parse", "origin/mai
 if (bump) run("npm", ["version", bump, "--no-git-tag-version"], { cwd: pkgDir, stdio: ["inherit", "ignore", "inherit"] });
 const next = version();
 const tag = `v${next}`;
-const undoBump = () => bump && run("git", ["checkout", "--", pkgJson]);
+for (const manifest of manifests) {
+  writeFileSync(manifest, readFileSync(manifest, "utf8").replace(/"version": "[^"]*"/, `"version": "${next}"`));
+}
+const undoBump = () => run("git", ["checkout", "--", pkgJson, ...manifests]);
 
 try {
   const published = read("npm", ["view", `mcp-feedback@${next}`, "version"]);
@@ -75,7 +81,7 @@ if (dryRun) {
   process.exit(0);
 }
 
-if (bump) run("git", ["commit", "--quiet", "-m", `Release mcp-feedback ${next}`, "--", pkgJson]);
+if (read("git", ["status", "--porcelain"])) run("git", ["commit", "--quiet", "-m", `Release mcp-feedback ${next}`, "--", pkgJson, ...manifests]);
 run("git", ["tag", "-a", tag, "-m", `mcp-feedback ${next}`]);
 run("git", ["push", "--quiet", "origin", "main", tag]);
 console.log(`release: mcp-feedback@${next} published, tagged ${tag} and pushed`);
