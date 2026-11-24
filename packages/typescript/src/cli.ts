@@ -61,6 +61,8 @@ Other:
   --dir <path>          With setup: install into this directory instead
   --force               With setup: replace skill files that were changed in the project
   --dry-run             With setup: report what would be written
+  --plugin              With setup: copy nothing; turn the Claude Code plugin on for the
+                        project in .claude/settings.json (Claude Code-only projects)
   --by <name>           Recorded as triaged_by (default: your username; with --mcp
                         the server records the credential's identity instead)
   --text                Human-readable output instead of JSON
@@ -215,6 +217,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
           dir: { type: "string" },
           force: { type: "boolean" },
           "dry-run": { type: "boolean" },
+          plugin: { type: "boolean" },
           help: { type: "boolean", short: "h" },
         },
       });
@@ -229,17 +232,21 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     }
 
     if (values["read-only"] && command !== "serve") throw new FeedbackInputError("--read-only only applies to serve.");
-    if (command !== "setup" && (values.dir !== undefined || values.force || values["dry-run"])) {
-      throw new FeedbackInputError("--dir, --force and --dry-run only apply to setup.");
+    if (command !== "setup" && (values.dir !== undefined || values.force || values["dry-run"] || values.plugin)) {
+      throw new FeedbackInputError("--dir, --force, --dry-run and --plugin only apply to setup.");
     }
     if (command === "setup") {
       if (ids.length) throw new FeedbackInputError("setup takes no arguments; use --dir <path> to choose where.");
+      if (values.plugin && (values.dir !== undefined || values.force)) {
+        throw new FeedbackInputError("--plugin copies no files, so --dir and --force do not apply to it.");
+      }
       const { setupSkills } = await import("./setup.js");
       return setupSkills({
         cwd: io.cwd ?? process.cwd(),
         dir: values.dir,
         force: values.force,
         dryRun: values["dry-run"],
+        plugin: values.plugin,
         version,
         out: io.out,
       });

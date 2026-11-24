@@ -16,6 +16,8 @@ npx -y mcp-feedback@latest setup
 
 Run it again after upgrading; files you edited are kept unless you pass `--force`.
 
+For a project worked on only in Claude Code, `setup --plugin` copies nothing and turns the plugin on for the project in `.claude/settings.json`; each person then runs `claude plugin install mcp-feedback@mcp-feedback --scope project` once.
+
 ## Use
 
 ```ts

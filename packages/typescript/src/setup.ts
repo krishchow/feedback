@@ -1,5 +1,6 @@
 // `mcp-feedback setup`: copies the agent skills that ship with the package into a project's skills
-// directory, so sessions working in that project have them without installing a plugin.
+// directory, so sessions working in that project have them without installing a plugin. With --plugin
+// it instead turns the Claude Code plugin on for the project, for projects worked on only in Claude Code.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -10,6 +11,9 @@ import { FeedbackInputError } from "./reader.js";
 /** Records what setup wrote, so a later run can tell its own files from ones edited since. */
 const MANIFEST = ".mcp-feedback.json";
 const SKILL_DIRS = [".agents/skills", ".claude/skills"];
+/** The Claude Code marketplace this repository serves, and the plugin in it. */
+const MARKETPLACE = { name: "mcp-feedback", repo: "krishchow/feedback" };
+const PLUGIN = `mcp-feedback@${MARKETPLACE.name}`;
 
 export interface SetupOptions {
   cwd: string;
@@ -18,6 +22,8 @@ export interface SetupOptions {
   /** Replace files that were edited after an earlier setup, or that setup did not write. */
   force?: boolean;
   dryRun?: boolean;
+  /** Turn the Claude Code plugin on in the project's settings instead of copying the skills. */
+  plugin?: boolean;
   version: string;
   /** Test seam: where the skills are read from. */
   skillsSource?: string;
@@ -71,8 +77,79 @@ function filesUnder(dir: string, prefix = ""): string[] {
 
 const hash = (content: Buffer) => createHash("sha256").update(content).digest("hex");
 
-/** Copies the skills into the project and resolves the process exit code. */
+type Json = Record<string, unknown>;
+const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Adds the marketplace and the plugin to the project's .claude/settings.json, leaving everything else in
+ * it alone. Nothing is copied: Claude Code fetches the skills from the repository.
+ */
+function setupPlugin(options: SetupOptions): number {
+  const root = projectRoot(options.cwd);
+  const path = join(root, ".claude", "settings.json");
+  const shown = relative(options.cwd, path) || path;
+  let settings: Json = {};
+  if (existsSync(path)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(path, "utf8"));
+    } catch (error) {
+      throw new FeedbackInputError(`${shown} is not valid JSON (${(error as Error).message}); nothing was changed.`);
+    }
+    if (!isObject(parsed)) throw new FeedbackInputError(`${shown} does not hold a JSON object; nothing was changed.`);
+    settings = parsed;
+  }
+  const marketplaces = isObject(settings.extraKnownMarketplaces) ? settings.extraKnownMarketplaces : {};
+  const enabled = isObject(settings.enabledPlugins) ? settings.enabledPlugins : {};
+  const registered = MARKETPLACE.name in marketplaces && enabled[PLUGIN] === true;
+
+  if (registered) {
+    options.out(`${shown} already turns on ${PLUGIN}`);
+  } else {
+    // An entry the project already has for the marketplace is kept as it is. autoUpdate makes installed
+    // copies follow the repository; Claude Code leaves it off for marketplaces that are not its own.
+    const next = {
+      ...settings,
+      extraKnownMarketplaces: {
+        ...marketplaces,
+        [MARKETPLACE.name]: marketplaces[MARKETPLACE.name] ?? {
+          source: { source: "github", repo: MARKETPLACE.repo },
+          autoUpdate: true,
+        },
+      },
+      enabledPlugins: { ...enabled, [PLUGIN]: true },
+    };
+    if (!options.dryRun) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+    }
+    options.out(`${options.dryRun ? "would turn on" : "turned on"} ${PLUGIN} in ${shown}`);
+  }
+
+  const seen = new Set<string>();
+  const copies = SKILL_DIRS.map((dir) => join(root, dir)).filter((dir) => {
+    if (!existsSync(join(dir, MANIFEST))) return false;
+    const real = realpathSync(dir);
+    return !seen.has(real) && seen.add(real);
+  });
+  if (copies.length) {
+    const where = copies.map((dir) => relative(options.cwd, dir) || ".");
+    options.out(`warning: the skills were also copied into ${where.join(" and ")}; Claude Code will list each one twice.`);
+    options.out("         Keep one: remove those copies, or take the plugin back out of the settings file.");
+  } else if ([".agents", "AGENTS.md"].some((name) => existsSync(join(root, name)))) {
+    options.out("warning: this project is also set up for agents other than Claude Code, and they get nothing from a plugin.");
+    options.out("         Run setup without --plugin to copy the skills in for them.");
+  }
+  options.out("");
+  options.out("Commit the settings file. Claude Code does not download the plugin by itself, so everyone");
+  options.out("working in this project, you included, runs this once in their copy of it:");
+  options.out(`  claude plugin install ${PLUGIN} --scope project`);
+  return 0;
+}
+
+/** Copies the skills into the project, or turns the plugin on, and resolves the process exit code. */
 export function setupSkills(options: SetupOptions): number {
+  if (options.plugin) return setupPlugin(options);
   const source = options.skillsSource ?? bundledSkills();
   const root = projectRoot(options.cwd);
   const destinations = options.dir ? [resolve(options.cwd, options.dir)] : targets(root);

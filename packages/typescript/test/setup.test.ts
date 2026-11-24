@@ -101,4 +101,45 @@ describe("setup", () => {
     expect(existsSync(skill(root, "tools/skills"))).toBe(true);
     expect(await runCli(["stats", "--force"], { out: () => {}, err: () => {}, env: {} })).toBe(2);
   });
+
+  it("with --plugin turns the plugin on in .claude/settings.json and copies nothing", async () => {
+    const root = project((dir) => {
+      mkdirSync(join(dir, ".claude"));
+      writeFileSync(join(dir, ".claude/settings.json"), JSON.stringify({ permissions: { allow: ["Bash(ls)"] }, enabledPlugins: { "other@x": true } }));
+    });
+    const settings = () => JSON.parse(readFileSync(join(root, ".claude/settings.json"), "utf8"));
+
+    expect((await setup(root, "--plugin", "--dry-run")).text).toMatch(/would turn on mcp-feedback@mcp-feedback/);
+    expect(settings().extraKnownMarketplaces).toBeUndefined();
+
+    const { code, text } = await setup(root, "--plugin");
+    expect(code).toBe(0);
+    expect(settings()).toEqual({
+      permissions: { allow: ["Bash(ls)"] },
+      extraKnownMarketplaces: { "mcp-feedback": { source: { source: "github", repo: "krishchow/feedback" }, autoUpdate: true } },
+      enabledPlugins: { "other@x": true, "mcp-feedback@mcp-feedback": true },
+    });
+    expect(text).toMatch(/claude plugin install mcp-feedback@mcp-feedback --scope project/);
+    expect(text).not.toMatch(/warning/);
+    expect(existsSync(join(root, ".claude/skills"))).toBe(false);
+    expect(existsSync(join(root, ".agents"))).toBe(false);
+    expect((await setup(root, "--plugin")).text).toMatch(/already turns on/);
+  });
+
+  it("with --plugin warns about other agents and copied skills, and refuses settings it cannot read", async () => {
+    const agents = project((dir) => writeFileSync(join(dir, "AGENTS.md"), ""));
+    expect((await setup(agents, "--plugin")).text).toMatch(/warning: .*agents other than Claude Code/);
+
+    const copied = project();
+    await setup(copied);
+    expect((await setup(copied, "--plugin")).text).toMatch(/warning: .*copied into \.agents\/skills.*twice/);
+
+    const broken = project((dir) => {
+      mkdirSync(join(dir, ".claude"));
+      writeFileSync(join(dir, ".claude/settings.json"), "{ not json");
+    });
+    expect((await setup(broken, "--plugin")).code).toBe(2);
+    expect(readFileSync(join(broken, ".claude/settings.json"), "utf8")).toBe("{ not json");
+    expect((await setup(project(), "--plugin", "--dir", "x")).code).toBe(2);
+  });
 });

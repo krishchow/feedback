@@ -20,6 +20,8 @@ This copies three agent skills into the project's skills directory (`.agents/ski
 
 Run `setup` again after upgrading: files you have not touched are updated, files you edited are kept unless you pass `--force`. `--dir <path>` installs somewhere else and `--dry-run` shows what would be written.
 
+If the project is worked on only in Claude Code, `setup --plugin` copies nothing and turns the plugin on for the project in `.claude/settings.json` instead. The skills then follow this repository rather than the installed package, and each person runs `claude plugin install mcp-feedback@mcp-feedback --scope project` once in their copy of the project. Other agents get nothing from a plugin, so keep the copy for a project they work in too.
+
 To have the skills in your own sessions in every project instead, install them as a plugin. Claude Code: `/plugin install mcp-feedback --marketplace krishchow/feedback`. Codex reads `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` from this repo.
 
 ## The feedback loop

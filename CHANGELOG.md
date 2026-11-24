@@ -4,6 +4,10 @@ Versions are those of the `mcp-feedback` npm package. The skills are not version
 
 ## Unreleased
 
+- `mcp-feedback setup --plugin` copies nothing and instead turns the Claude Code plugin on for the project in `.claude/settings.json`, for projects worked on only in Claude Code. Each person still installs the plugin once in their copy of the project. It warns when the project is also set up for other agents, or already has the copied skills.
+
+## 0.6.0 (2026-11-24)
+
 - `mcp-feedback setup` copies the skills, now shipped in the npm package, into a project's `.agents/skills` or `.claude/skills`. A later run updates files it wrote and keeps ones edited in the project unless `--force` is given.
 - New `set-up-feedback-reading` skill: works out a project's own facts (reader endpoint, credential, deployment, reference ids, release rule) from its code and writes them down as a local reference for the sessions that read its feedback.
 - `feedbackInstructions`, `feedbackConfirmInstructions` and the `submit_feedback` description now tell agents to give only ids they were given and to submit a report once, not again after an unclear result.
