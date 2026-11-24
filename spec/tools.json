@@ -1,11 +1,11 @@
 {
   "spec_version": 1,
-  "instructions": "If one of this server's tools fails, behaves unexpectedly, is confusing, or cannot do what the user needed, call submit_feedback once you have handled or been blocked on the user's request. Describe the goal, what you expected, what happened and the tool calls involved, without secrets or personal data, and tell the user you filed it.",
+  "instructions": "If one of this server's tools fails, behaves unexpectedly, is confusing, or cannot do what the user needed, call submit_feedback once you have handled or been blocked on the user's request. Describe the goal, what you expected, what happened and the tool calls involved, without secrets or personal data, and tell the user you filed it. Put the ids of the objects involved in context.references, and only ids you were actually given, never a guess. Submit each report once: if the call times out or its result is unclear, tell the user instead of sending it again.",
   "submit_tools": [
     {
       "name": "submit_feedback",
       "title": "Submit feedback",
-      "description": "Report a problem, friction, missing capability or success with this server's tools to its maintainers. Call it when a tool fails or behaves unexpectedly, when the user needed something the tools could not do, or when a tool was confusing to use. Include enough context for someone who was not in this session to act on it. Never include secrets or personal data. The caller's identity is recorded by the server.",
+      "description": "Report a problem, friction, missing capability or success with this server's tools to its maintainers. Call it when a tool fails or behaves unexpectedly, when the user needed something the tools could not do, or when a tool was confusing to use. Include enough context for someone who was not in this session to act on it, with only ids you were actually given. Never include secrets or personal data. The caller's identity is recorded by the server. Each call files a new report: if a call may have gone through, do not send it again.",
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,

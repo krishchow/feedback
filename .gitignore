@@ -5,3 +5,4 @@ dist/
 *.db-wal
 *.tsbuildinfo
 .DS_Store
+packages/typescript/skills/

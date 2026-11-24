@@ -6,7 +6,15 @@ Drop-in feedback for MCP servers. Add one call to a server built on the official
 npm install mcp-feedback
 ```
 
-The language-neutral spec (record schema, tool definitions, store contract, SQL layout) and agent skills live in the [repository](https://github.com/krishchow/feedback).
+The language-neutral spec (record schema, tool definitions, store contract, SQL layout) lives in the [repository](https://github.com/krishchow/feedback).
+
+The package also carries agent skills for adding feedback to a server, recording a project's own facts about where its feedback is read, and reading and closing it out. Copy them into a project's skills directory (`.agents/skills` or `.claude/skills`, whichever it has) with:
+
+```sh
+npx -y mcp-feedback@latest setup
+```
+
+Run it again after upgrading; files you edited are kept unless you pass `--force`.
 
 ## Use
 
@@ -24,6 +32,30 @@ registerFeedbackReader(adminServer, { store });
 ```
 
 The reader tools list, fetch and count feedback, and `update_feedback_triage` closes out, dismisses or reopens one or many records with a note. Pass `readOnly: true` to leave that tool out. If you would rather not expose reader tools at all, use the CLI.
+
+The reader tools show every caller's feedback, so they go on their own endpoint with their own credential, never on the one agents use. The library does no authentication itself; your middleware does, and by setting `req.auth` it also tells the library who is calling:
+
+```ts
+const bearer = (token: string, clientId: string) => (req, res, next) => {
+  if (!token || req.get("authorization") !== `Bearer ${token}`) return res.status(401).end();
+  req.auth = { token, clientId, scopes: [] }; // the SDK hands this to tools as authInfo
+  next();
+};
+
+app.post("/mcp", bearer(process.env.AGENT_TOKEN, "myapp-agent"), handleAgentMcp);                  // registerFeedback
+app.post("/mcp/feedback", bearer(process.env.MAINTAINER_TOKEN, "myapp-maintainer"), handleReader); // registerFeedbackReader
+```
+
+The agent endpoint's `clientId` ends up in each record's `identity`, and the reader endpoint's in `triaged_by`. The repository has a [runnable example](https://github.com/krishchow/feedback/tree/main/examples/express-server).
+
+## The feedback loop
+
+1. **Collect.** Agents call `submit_feedback` when a tool fails them. Each record starts as `new`.
+2. **Read.** A maintainer, or their agent, reads the queue through the reader tools or the CLI and groups it into problems worth fixing.
+3. **Work.** Items taken on are marked `triaged` with a note saying what will be done. Triaged means acknowledged and still open.
+4. **Close.** Once the fix is released and checked, the items are marked `resolved` with the version or PR in the note. What will not be done is `dismissed` with the reason. Either can be reopened.
+
+Nothing is ever deleted, and a record's content and submitter cannot be changed. The repository's `read-feedback` skill takes an agent through steps 2 to 4.
 
 ## CLI
 
@@ -46,6 +78,8 @@ mcp-feedback close <id> <id> --note "Fixed in 1.2"
 mcp-feedback close <id> --dismiss --note "Working as intended"
 mcp-feedback reopen <id>
 ```
+
+`list` prints one page, newest first (`--limit`, 25 by default and 100 at most; `--cursor` takes the `next_cursor` from the page before). `export` prints every matching record, so use it to read a whole queue. `close`, `reopen` and `triage --status <s>` take up to 100 ids. `--note` replaces the record's note, leaving it out keeps the note, and `--clear-note` removes it. With a store, `--table` names a table other than `mcp_feedback`.
 
 `mcp-feedback serve` runs the reader tools as a **stdio MCP server**, in front of any of those sources, so an agent session can read and triage feedback without connecting to a remote HTTP endpoint itself. Messages go to stderr; stdout carries the protocol. Add `--read-only` to leave out triage. For Claude Code:
 
@@ -109,6 +143,27 @@ If `attachContext` throws, the feedback is still stored without it and the error
 | `serverInfo` | Server name and version to record; defaults to the server's own. |
 | `tokenFingerprintKey` | Secret that makes token fingerprints an HMAC. Recommended; keep it stable and the same on every instance. |
 | `onError` | Receives storage errors, which are hidden from the agent. |
+
+`registerFeedbackReader` takes:
+
+| Option | Purpose |
+| --- | --- |
+| `store` | The store to read and triage. Give this or `reader`. |
+| `reader` | A `FeedbackReaderClient`, such as the one `connectFeedbackReader` returns, to serve another server's reader endpoint again. |
+| `readOnly` | Leave out `update_feedback_triage`. |
+| `resolveIdentity` | Override who triage is recorded as. |
+| `toolPrefix` | Prefix for tool and prompt names. |
+| `tokenFingerprintKey` | The same key as on the submit side, for a reader whose credential has no client id or subject. |
+| `onError` | Receives storage errors, which are hidden from the agent. |
+
+## Statuses
+
+| Status | Meaning |
+| --- | --- |
+| `new` | Filed and not yet looked at. Also what reopening sets. |
+| `triaged` | Acknowledged, perhaps being worked on. Still open. |
+| `resolved` | Fixed or delivered. The note says where. |
+| `dismissed` | Will not be acted on. The note says why. |
 
 ## Stores
 

@@ -125,8 +125,9 @@ export const SUBMIT_TOOL = {
   description:
     "Report a problem, friction, missing capability or success with this server's tools to its maintainers. " +
     "Call it when a tool fails or behaves unexpectedly, when the user needed something the tools could not do, " +
-    "or when a tool was confusing to use. Include enough context for someone who was not in this session to act on it. " +
-    "Never include secrets or personal data. The caller's identity is recorded by the server.",
+    "or when a tool was confusing to use. Include enough context for someone who was not in this session to act on it, " +
+    "with only ids you were actually given. Never include secrets or personal data. The caller's identity is recorded " +
+    "by the server. Each call files a new report: if a call may have gone through, do not send it again.",
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
 } as const;
 
@@ -190,11 +191,17 @@ export function synthesizePromptText(prefix: string, args: { since?: string; foc
     .join("\n");
 }
 
+/** Ends both instruction texts: what agents otherwise get wrong about ids and retries. */
+const SUBMIT_ONCE =
+  "Put the ids of the objects involved in context.references, and only ids you were actually given, never a guess. " +
+  "Submit each report once: if the call times out or its result is unclear, tell the user instead of sending it again.";
+
 /** Text a host can append to its server `instructions` so agents know when to file feedback. */
 export const feedbackInstructions =
   "If one of this server's tools fails, behaves unexpectedly, is confusing, or cannot do what the user needed, " +
   "call submit_feedback once you have handled or been blocked on the user's request. Describe the goal, what you " +
-  "expected, what happened and the tool calls involved, without secrets or personal data, and tell the user you filed it.";
+  "expected, what happened and the tool calls involved, without secrets or personal data, and tell the user you filed it. " +
+  SUBMIT_ONCE;
 
 /** Appended to the submit tool's description when the host sets `requireConfirmation`. */
 export const CONFIRMATION_REQUIRED =
@@ -205,7 +212,8 @@ export const CONFIRMATION_REQUIRED =
 export const feedbackConfirmInstructions =
   "If one of this server's tools fails, behaves unexpectedly, is confusing, or cannot do what the user needed, " +
   "offer to file feedback: show the user the exact kind, title, body and context you would submit, and call " +
-  "submit_feedback only after they explicitly confirm. Leave out secrets and personal data.";
+  "submit_feedback only after they explicitly confirm. Leave out secrets and personal data. " +
+  SUBMIT_ONCE;
 
 export function submitToolDescription(requireConfirmation = false): string {
   return SUBMIT_TOOL.description + (requireConfirmation ? CONFIRMATION_REQUIRED : "");

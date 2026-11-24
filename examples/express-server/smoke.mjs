@@ -38,7 +38,11 @@ try {
       title: "echo has no way to repeat N times",
       body: "The user asked for the text three times; I had to call echo three times.",
       severity: "minor",
-      context: { goal: "Repeat a line three times", tool_calls: [{ name: "echo", arguments_summary: "text=hi" }] },
+      context: {
+        goal: "Repeat a line three times",
+        tool_calls: [{ name: "echo", arguments_summary: "text=hi" }],
+        references: { requestId: "req-1" },
+      },
     },
   });
   assert.equal(submitted.isError, undefined, JSON.stringify(submitted));
@@ -58,6 +62,12 @@ try {
   assert.equal(record.identity.user_agent, "smoke-agent/1.0");
   // Stateless transport: no session id, and client info from initialize is gone by the tool call.
   assert.equal(record.identity.session_id, null);
+  assert.deepEqual(record.context.server_context, { node: process.version });
+
+  // Everything reported about one object, and nothing for another.
+  const byReference = (value) => reader.callTool({ name: "list_feedback", arguments: { reference: { key: "requestId", value } } });
+  assert.deepEqual((await byReference("req-1")).structuredContent.items.map((item) => item.id), [id]);
+  assert.deepEqual((await byReference("req-2")).structuredContent.items, []);
 
   const triaged = await reader.callTool({ name: "update_feedback_triage", arguments: { ids: [id], status: "resolved", note: "Added a count argument" } });
   assert.equal(triaged.structuredContent.updated[0].triaged_by, "example-maintainer");
@@ -69,6 +79,7 @@ try {
   const cli = (...args) =>
     JSON.parse(execFileSync("pnpm", ["exec", "mcp-feedback", ...args, "--db", join(dir, "feedback.db")], { encoding: "utf8" }));
   assert.equal(cli("get", id).triage_note, "Added a count argument");
+  assert.equal(cli("list", "--ref", "requestId=req-1").items[0].id, id);
   assert.equal(cli("reopen", id, "--by", "smoke").updated[0].status, "new");
   assert.deepEqual(cli("stats").by_status, { new: 1 });
 
