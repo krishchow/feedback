@@ -48,6 +48,74 @@ app.post("/mcp/feedback", bearer(process.env.MAINTAINER_TOKEN, "myapp-maintainer
 
 The agent endpoint's `clientId` ends up in each record's `identity`, and the reader endpoint's in `triaged_by`. The repository has a [runnable example](https://github.com/krishchow/feedback/tree/main/examples/express-server).
 
+## Servers that run on their users' machines
+
+A stdio server started with `npx`, or any server that runs on each user's machine, has no store its maintainer can read: a SQLite file there is never seen. Send its feedback to a hub you run instead. The hub writes into an ordinary store, which the reader tools and CLI read as above.
+
+**1. Keys and a project key**, once, on your machine:
+
+```sh
+mcp-feedback ingest keygen --out ingest-key.json        # keep this file private
+mcp-feedback ingest issue-key --project my-server --key ingest-key.json --issuer https://feedback.example.com
+```
+
+The project key is public by design: it ships in your package and can only enrol an installation.
+
+**2. The server**, using the project key:
+
+```ts
+import { registerFeedback, feedbackConfirmInstructions } from "mcp-feedback";
+import { feedbackDisabled, remoteStore } from "mcp-feedback/remote";
+
+if (!feedbackDisabled()) {
+  const store = remoteStore({ endpoint: "https://feedback.example.com", projectKey: "eyJhbGciOiJFZERTQSIs…" });
+  registerFeedback(server, { store, requireConfirmation: true, destination: "the my-server maintainers" });
+  void store.flush(); // sends reports that could not be sent last time
+}
+```
+
+On first use the installation enrols and gets its own token, kept in a per-user state directory. When the hub cannot be reached, the report is saved there and sent later, and the tool tells the agent where it is waiting; deleting the file cancels it. A report the hub refuses is not kept. `destination` adds a sentence to the tool's description saying where reports go, so the user knows before confirming. Users can turn feedback off with `MCP_FEEDBACK_DISABLED=1`.
+
+**3. The hub.** One hub serves every server you distribute. Each server's reports are kept under its project name (`server.name`) in one store, and the hub accepts any project your key issued a project key for, so a new server needs a project key and nothing else. `hub/` in the repository has a Dockerfile and deployment notes; or run it directly:
+
+```sh
+MCP_FEEDBACK_READER_TOKEN=… mcp-feedback ingest serve --postgres "$DATABASE_URL" --key ingest-key.json \
+  --issuer https://feedback.example.com --port 8787 [--project a --project b] [--trust-proxy] [--revoked revoked.txt]
+```
+
+`--project`, repeated, accepts only the projects listed. With `MCP_FEEDBACK_READER_TOKEN` set, the hub also serves the reader tools for every project at `/mcp`, so one URL and one credential reach all of it:
+
+```sh
+MCP_FEEDBACK_URL=https://feedback.example.com/mcp MCP_FEEDBACK_TOKEN=… mcp-feedback stats   # by_server shows each project
+MCP_FEEDBACK_URL=https://feedback.example.com/mcp MCP_FEEDBACK_TOKEN=… mcp-feedback list --server my-server
+```
+
+Or mount it in an existing app:
+
+```ts
+import { createIngestHandler, toNodeListener } from "mcp-feedback/ingest";
+
+const ingest = createIngestHandler({
+  issuer: "https://feedback.example.com",
+  keyring: { keys: [{ kid, publicKey }], signer: { kid, privateKey } },
+  store: postgresStore({ client: pool, table: "hub_feedback" }), // every project, namespaced by server.name
+  // projects: { "my-server": {}, legacy: { store: legacyStore } }, // optional: only these, or a store of their own
+});
+app.use("/v1", toNodeListener(ingest)); // before any body parser. Under another prefix, e.g. /ingest/v1, pass basePath: "/ingest"
+// Elsewhere (Workers, Deno, Bun), the handler itself is a web-standard (Request) => Promise<Response>.
+```
+
+Read it like any other store: a reader endpoint over the same store (`registerFeedbackReader`), or `mcp-feedback list --postgres … --server my-server`.
+
+**What a signature does and does not prove.** The hub's key signs every token, and the hub only accepts its own signatures, so forged and expired tokens are refused before anything is read. Each record says which kind of token sent it, in `identity.scopes`:
+
+| Scope | Sent with | Means |
+| --- | --- | --- |
+| `ingest:install` | The token an installation got by enrolling | Anonymous. Records with the same `identity.subject` come from one installation. Anyone with the package can enrol. |
+| `ingest:issued` | `mcp-feedback ingest issue-token --project my-server --subject alice@example.com` | From whoever you gave that token to. Pass it to `remoteStore` as `token`, e.g. from an environment variable. |
+
+The content of every report is untrusted, whichever token sent it. The hub stamps identity, project, time and status itself and ignores those fields in the request; it limits reports per installation, per issued subject and per project each day; and revoking a `jti` or a subject refuses that token from then on. The protocol is in `spec/ingest.md`.
+
 ## The feedback loop
 
 1. **Collect.** Agents call `submit_feedback` when a tool fails them. Each record starts as `new`.
@@ -184,4 +252,4 @@ const store = defineFeedbackStore({ insert, get, list, updateTriage, stats });
 await runStoreConformance(store); // rejects on the first failing case
 ```
 
-The package does not rate-limit submissions; rely on your server's existing limits.
+The package does not rate-limit submissions; rely on your server's existing limits. The ingest hub is the exception: it has daily quotas of its own.

@@ -12,7 +12,7 @@ import {
   storeReader,
   type FeedbackReaderClient,
 } from "./reader.js";
-import type { FeedbackStore } from "./store.js";
+import { FeedbackDeliveryError, type FeedbackSink, type FeedbackStore } from "./store.js";
 import {
   READER_TOOLS,
   SUBMIT_TOOL,
@@ -71,8 +71,16 @@ interface SharedOptions {
 }
 
 export interface FeedbackOptions extends SharedOptions {
-  /** Created once at module level and shared across requests. */
-  store: FeedbackStore;
+  /**
+   * Created once at module level and shared across requests. Any store, or a write-only sink such
+   * as `remoteStore()` for a server that runs on its users' machines.
+   */
+  store: FeedbackSink;
+  /**
+   * Where reports go, when that is not the server the agent is talking to, e.g. `"the Acme
+   * maintainers (feedback.acme.dev)"`. Added to the submit tool's description.
+   */
+  destination?: string;
   /**
    * Tell agents to file only after the user confirms the exact feedback. Pair it with
    * `feedbackConfirmInstructions` in the server's instructions.
@@ -122,7 +130,8 @@ export type FeedbackReaderOptions = SharedOptions & {
 );
 
 
-type SubmitInput = {
+/** What an agent submits: the submit tool's input, before the server stamps anything on it. */
+export type FeedbackSubmission = {
   kind: FeedbackRecord["kind"];
   title: string;
   body: string;
@@ -130,6 +139,7 @@ type SubmitInput = {
   tags?: string[];
   context?: FeedbackContext;
 };
+type SubmitInput = FeedbackSubmission;
 
 export function uuidv7(now = Date.now()): string {
   const bytes = randomBytes(16);
@@ -138,6 +148,43 @@ export function uuidv7(now = Date.now()): string {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = bytes.toString("hex");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Applies the size and shape limits to a submission, throwing a FeedbackInputError whose message
+ * tells the agent what to fix. Shared with the ingest hub so both apply the same rules.
+ */
+export function validateSubmission(input: FeedbackSubmission, limits: FeedbackLimits = DEFAULT_FEEDBACK_LIMITS): void {
+  checkLimits(input, limits);
+}
+
+/**
+ * A new record from a submission and what the server knows: who sent it and which server it is.
+ * Nothing in `stamp` is ever taken from the submission itself.
+ */
+export function buildRecord(
+  input: FeedbackSubmission,
+  stamp: { id?: string; now?: Date; identity: FeedbackIdentity; server: FeedbackServerInfo },
+): FeedbackRecord {
+  const now = stamp.now ?? new Date();
+  const created = now.toISOString();
+  return {
+    schema_version: FEEDBACK_SCHEMA_VERSION,
+    id: stamp.id ?? uuidv7(now.getTime()),
+    created_at: created,
+    kind: input.kind,
+    title: input.title,
+    body: input.body,
+    severity: input.severity ?? "none",
+    tags: [...new Set(input.tags ?? [])],
+    context: JSON.parse(JSON.stringify(input.context ?? {})) as FeedbackContext,
+    identity: stamp.identity,
+    server: stamp.server,
+    status: "new",
+    triage_note: null,
+    triaged_by: null,
+    updated_at: created,
+  };
 }
 
 function checkLimits(input: SubmitInput, limits: FeedbackLimits): void {
@@ -218,7 +265,8 @@ function createRuntime(server: McpServer, options: SharedOptions) {
     } catch (error) {
       if (!(error instanceof FeedbackInputError)) options.onError?.(error, tool);
       // A remote reader's errors carry the remote server's own, already safe, messages.
-      const shown = error instanceof FeedbackInputError || error instanceof FeedbackReaderError;
+      const shown =
+        error instanceof FeedbackInputError || error instanceof FeedbackReaderError || error instanceof FeedbackDeliveryError;
       const text = shown ? error.message : "The feedback store is unavailable. Try again later.";
       return { isError: true, content: [{ type: "text" as const, text }] };
     }
@@ -240,7 +288,7 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
     name,
     {
       title: SUBMIT_TOOL.title,
-      description: submitToolDescription(options.requireConfirmation),
+      description: submitToolDescription(options.requireConfirmation, options.destination),
       inputSchema: submitFeedbackShapeFor(options.contextFields),
       annotations: SUBMIT_TOOL.annotations,
     },
@@ -257,28 +305,13 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
         // The SDK does not expose the server's own name and version publicly; tests cover this
         // fallback, and hosts can avoid it by passing serverInfo.
         const constructed = (server.server as unknown as { _serverInfo?: Partial<FeedbackServerInfo> })._serverInfo;
-        const now = new Date();
-        const created = now.toISOString();
-        let record: FeedbackRecord = {
-          schema_version: FEEDBACK_SCHEMA_VERSION,
-          id: uuidv7(now.getTime()),
-          created_at: created,
-          kind: input.kind,
-          title: input.title,
-          body: input.body,
-          severity: input.severity ?? "none",
-          tags: [...new Set(input.tags ?? [])],
-          context: JSON.parse(JSON.stringify(input.context ?? {})) as FeedbackContext,
+        let record = buildRecord(input, {
           identity,
           server: {
             name: options.serverInfo?.name ?? constructed?.name ?? null,
             version: options.serverInfo?.version ?? constructed?.version ?? null,
           },
-          status: "new",
-          triage_note: null,
-          triaged_by: null,
-          updated_at: created,
-        };
+        });
         if (options.attachContext) {
           try {
             const attached = await options.attachContext(record, extra);
@@ -289,8 +322,14 @@ export function registerFeedback(server: McpServer, options: FeedbackOptions): v
         }
         if (options.redact) record = await options.redact(record);
 
-        await options.store.insert(record);
-        return { id: record.id, created_at: record.created_at, status: record.status };
+        const receipt = await options.store.insert(record);
+        return {
+          id: record.id,
+          created_at: record.created_at,
+          status: record.status,
+          // Only a sink that did something other than store the record says so.
+          ...(receipt && receipt.delivery !== "stored" ? { delivery: receipt.delivery, ...(receipt.note ? { note: receipt.note } : {}) } : {}),
+        };
       }),
   );
 }

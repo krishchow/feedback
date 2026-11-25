@@ -23,6 +23,25 @@ export interface FeedbackStore {
   close?(): Promise<void>;
 }
 
+/** What became of a submission, for a sink with more to say than "stored". */
+export interface FeedbackReceipt {
+  /** `queued`: accepted but not yet delivered, e.g. saved locally until a remote service is reachable. */
+  delivery: "stored" | "queued";
+  /** Shown to the submitting agent, e.g. where a queued report is waiting. Must be safe to show. */
+  note?: string;
+}
+
+/**
+ * The write half of the contract, which is all `registerFeedback` needs. Every store is a sink;
+ * a sink that cannot be read locally (remoteStore) is not a store.
+ */
+export interface FeedbackSink {
+  insert(record: FeedbackRecord): Promise<void | FeedbackReceipt>;
+}
+
+/** A submission could not be delivered. Its message is safe to show to the caller. */
+export class FeedbackDeliveryError extends Error {}
+
 /** Identity helper that type-checks a custom store against the contract. */
 export function defineFeedbackStore<T extends FeedbackStore>(store: T): T {
   return store;
@@ -57,6 +76,7 @@ export function matchesFilter(record: FeedbackRecord, filter: FeedbackFilter): b
   if (filter.status !== undefined && record.status !== filter.status) return false;
   if (filter.severity !== undefined && record.severity !== filter.severity) return false;
   if (filter.subject !== undefined && record.identity.subject !== filter.subject) return false;
+  if (filter.server !== undefined && record.server.name !== filter.server) return false;
   if (filter.tool !== undefined && !toolNamesOf(record).includes(filter.tool)) return false;
   if (filter.tag !== undefined && !record.tags.includes(filter.tag)) return false;
   if (filter.since !== undefined && record.created_at < filter.since) return false;

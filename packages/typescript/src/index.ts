@@ -6,6 +6,9 @@ export {
   decodeCursor,
   compareNewestFirst,
   matchesFilter,
+  FeedbackDeliveryError,
+  type FeedbackReceipt,
+  type FeedbackSink,
   type FeedbackStore,
 } from "./store.js";
 export {
@@ -18,7 +21,10 @@ export {
 export {
   registerFeedback,
   registerFeedbackReader,
+  buildRecord,
+  validateSubmission,
   DEFAULT_FEEDBACK_LIMITS,
+  type FeedbackSubmission,
   type FeedbackLimits,
   type FeedbackOptions,
   type FeedbackReaderOptions,

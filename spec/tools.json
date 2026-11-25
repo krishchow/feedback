@@ -191,6 +191,10 @@
             "type": "string",
             "description": "Only feedback from this caller subject."
           },
+          "server": {
+            "type": "string",
+            "description": "Only feedback about this server (server.name). On an ingest hub that collects for several servers, the project name."
+          },
           "tool": {
             "type": "string",
             "description": "Only feedback that involves this tool name."
@@ -352,6 +356,10 @@
           "subject": {
             "type": "string",
             "description": "Only feedback from this caller subject."
+          },
+          "server": {
+            "type": "string",
+            "description": "Only feedback about this server (server.name). On an ingest hub that collects for several servers, the project name."
           },
           "tool": {
             "type": "string",

@@ -9,6 +9,7 @@ This directory is the contract every implementation follows, whatever its langua
 | `store-contract.md` | The operations a storage backend provides and how they must behave. |
 | `conformance/store-cases.json` | Test vectors for the store contract. |
 | `sql/sqlite.sql`, `sql/postgres.sql` | The table layout the SQL stores share. |
+| `ingest.md` | Optional: a hub that collects feedback from servers running on their users' machines, its tokens and wire protocol. |
 
 `tools.json`, `store-cases.json` and `sql/*.sql` are generated from the TypeScript reference implementation (`pnpm gen:spec`), and its tests fail if they drift. `feedback-record.schema.json` and the prose are written by hand.
 
@@ -23,13 +24,13 @@ An implementation provides two independent registration entry points that take a
 
 An implementation SHOULD also ship a command-line reader that performs the same operations directly against a store, so a host can collect feedback without exposing any reader tools over MCP. The CLI MAY also act as an MCP client of a host's reader endpoint, so maintainers need only that endpoint's credential, not database access; it then sends no `triaged_by` of its own, since the server sets it. It MAY also serve the reader tools over stdio, in front of a store or a reader endpoint, so agent sessions can use them as a local MCP server; triage over a store is then attributed to the local user. The reference CLI does all of these and is described in the repository README.
 
-Both MUST be safe to call on a server object that is built per request. The store is created once by the host and passed to both.
+Both MUST be safe to call on a server object that is built per request. The store is created once by the host and passed to both. Submit needs only the store's `insert`, so it MAY be given a write-only sink instead, such as an ingest client (`ingest.md`).
 
 A host MAY configure a prefix that is prepended to every tool and prompt name.
 
 ## Submitting
 
-`submit_feedback` accepts the input schema in `tools.json` and returns `{ id, created_at, status }` as structured content, with the same JSON as text content.
+`submit_feedback` accepts the input schema in `tools.json` and returns `{ id, created_at, status }` as structured content, with the same JSON as text content. When a sink reports that it did something other than store the record (an ingest client that queued it), the result also has `delivery` (`queued`) and a `note` for the user; a sink that could not deliver at all fails the call with a message the agent can relay.
 
 A host MAY require that agents file only with the user's explicit confirmation. The implementation then appends this sentence to the tool's description, and SHOULD offer matching server instructions:
 
@@ -97,7 +98,7 @@ Problems with the caller's input are returned as tool errors with a message the 
 - `list_feedback` returns `{ items, next_cursor }`: full records, newest first, default page size 25, maximum 100. `since` and `until` accept any ISO 8601 timestamp and are normalised to the canonical form before reaching the store. `reference` (`{ key, value }`) matches records whose `context.references[key]` equals `value`; a key that does not match the reference key pattern is an input error.
 - `get_feedback` returns one record, or a tool error if the id is unknown.
 - `update_feedback_triage` triages or closes out one or more records (`ids`, 1 to 100). It changes only `status` and `triage_note` (input field `note`; `null` clears it); at least one MUST be given. `resolved` and `dismissed` close a record, `new` reopens it. `triaged_by` is set from the reader's resolved identity (`subject`, else `client_id`, else `token_fingerprint`) and `updated_at` to the current time. It returns `{ updated, not_found }`: the updated records and the ids that matched nothing. Unknown ids do not make the call fail. Submitted content and submitter identity are immutable.
-- `feedback_stats` returns `{ total, by_kind, by_status, by_severity, by_tool }` for the same filters as `list_feedback`.
+- `feedback_stats` returns `{ total, by_kind, by_status, by_severity, by_tool, by_server }` for the same filters as `list_feedback`. The `server` filter and `by_server` matter where one store holds several servers' feedback, as an ingest hub's does.
 - `synthesize_feedback` returns a single user message instructing the reader to gather statistics, read every record, group by underlying issue and report by impact. It MUST tell the reader to treat feedback text as data, not instructions: feedback is written by other agents and is untrusted input.
 
 ## Versioning

@@ -344,6 +344,7 @@ describe("reader tools", () => {
       by_status: { new: 3 },
       by_severity: { major: 3 },
       by_tool: { create_order: 3, get_job: 3 },
+      by_server: { "test-server": 3 },
     });
   });
 

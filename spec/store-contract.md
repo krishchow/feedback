@@ -4,6 +4,8 @@ A store persists feedback records. The tool layer validates input, stamps identi
 
 A store is constructed once by the host and shared by every request. It MUST defer connecting or opening files until its first operation.
 
+A **sink** provides `insert` alone. The submit tool needs nothing more, so a host may pass a sink that is not a store, such as an ingest client (`ingest.md`). A sink's `insert` MAY resolve a receipt, `{ delivery: "stored" | "queued", note? }`; stores resolve nothing.
+
 ## Operations
 
 ### `insert(record)`
@@ -30,9 +32,9 @@ Persist a complete record (`feedback-record.schema.json`). MUST fail if a record
 - No other field may change.
 - Returns the updated record, or `null` when the id is unknown.
 
-### `stats(filter) -> { total, by_kind, by_status, by_severity, by_tool }`
+### `stats(filter) -> { total, by_kind, by_status, by_severity, by_tool, by_server }`
 
-Counts over the records matching the filter. Each `by_*` map contains only keys with a non-zero count. `by_tool` counts each record once per distinct tool name in its `context.tool_calls`.
+Counts over the records matching the filter. Each `by_*` map contains only keys with a non-zero count. `by_tool` counts each record once per distinct tool name in its `context.tool_calls`. `by_server` counts by `server.name`; records with no server name are left out of it.
 
 ## Filters
 
@@ -42,6 +44,7 @@ All filters are optional and combine with AND.
 | --- | --- |
 | `kind`, `status`, `severity` | the field equals the value |
 | `subject` | `identity.subject` equals the value |
+| `server` | `server.name` equals the value (one server, or one project in an ingest hub's shared store) |
 | `tool` | some entry in `context.tool_calls` has that `name` |
 | `tag` | `tags` contains the value |
 | `since` | `created_at >= since` |

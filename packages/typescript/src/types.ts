@@ -76,6 +76,8 @@ export interface FeedbackFilter {
   status?: FeedbackStatus;
   severity?: FeedbackSeverity;
   subject?: string;
+  /** Matches records whose server.name equals this: one server, or one project on an ingest hub. */
+  server?: string;
   /** Matches records whose context.tool_calls names include this tool. */
   tool?: string;
   tag?: string;
@@ -111,4 +113,6 @@ export interface FeedbackStats {
   by_status: Record<string, number>;
   by_severity: Record<string, number>;
   by_tool: Record<string, number>;
+  /** Counts by server.name. Records with no server name are not counted here. */
+  by_server: Record<string, number>;
 }

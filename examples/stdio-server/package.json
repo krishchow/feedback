@@ -1,0 +1,14 @@
+{
+  "name": "mcp-feedback-example-stdio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "mcp-feedback": "workspace:*",
+    "zod": "3.25.76"
+  }
+}

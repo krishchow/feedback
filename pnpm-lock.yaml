@@ -181,6 +181,18 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
 
+  examples/stdio-server:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@3.25.76)
+      mcp-feedback:
+        specifier: workspace:*
+        version: link:../../packages/typescript
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+
   packages/typescript:
     dependencies:
       agentdist:

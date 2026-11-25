@@ -180,8 +180,8 @@
         "user_agent": null
       },
       "server": {
-        "name": "conformance-server",
-        "version": "1.0.0"
+        "name": null,
+        "version": null
       },
       "status": "new",
       "triage_note": null,
@@ -211,7 +211,7 @@
         "user_agent": null
       },
       "server": {
-        "name": "conformance-server",
+        "name": "other-server",
         "version": "1.0.0"
       },
       "status": "new",
@@ -366,6 +366,35 @@
         [
           "00000000-0000-7000-8000-000000000006",
           "00000000-0000-7000-8000-000000000003",
+          "00000000-0000-7000-8000-000000000001"
+        ]
+      ]
+    },
+    {
+      "name": "filters by server",
+      "op": "list",
+      "filter": {
+        "server": "other-server"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000005"
+        ]
+      ]
+    },
+    {
+      "name": "a server filter leaves out records with no server",
+      "op": "list",
+      "filter": {
+        "server": "conformance-server"
+      },
+      "limit": 10,
+      "expect_pages": [
+        [
+          "00000000-0000-7000-8000-000000000006",
+          "00000000-0000-7000-8000-000000000003",
+          "00000000-0000-7000-8000-000000000002",
           "00000000-0000-7000-8000-000000000001"
         ]
       ]
@@ -534,6 +563,10 @@
         "by_tool": {
           "create_order": 3,
           "list_orders": 2
+        },
+        "by_server": {
+          "conformance-server": 4,
+          "other-server": 1
         }
       }
     },
@@ -559,6 +592,9 @@
         },
         "by_tool": {
           "create_order": 2
+        },
+        "by_server": {
+          "conformance-server": 3
         }
       }
     },
@@ -587,6 +623,32 @@
         "by_tool": {
           "create_order": 2,
           "list_orders": 1
+        },
+        "by_server": {
+          "conformance-server": 2
+        }
+      }
+    },
+    {
+      "name": "stats honour a server",
+      "op": "stats",
+      "filter": {
+        "server": "other-server"
+      },
+      "expect": {
+        "total": 1,
+        "by_kind": {
+          "praise": 1
+        },
+        "by_status": {
+          "new": 1
+        },
+        "by_severity": {
+          "none": 1
+        },
+        "by_tool": {},
+        "by_server": {
+          "other-server": 1
         }
       }
     },
@@ -601,7 +663,8 @@
         "by_kind": {},
         "by_status": {},
         "by_severity": {},
-        "by_tool": {}
+        "by_tool": {},
+        "by_server": {}
       }
     },
     {

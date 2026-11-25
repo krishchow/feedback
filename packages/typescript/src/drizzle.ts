@@ -43,6 +43,7 @@ export function feedbackTable(name: string = DEFAULT_TABLE) {
       index(`${name}_created_idx`).on(table.createdAt.desc().nullsFirst(), table.id.desc().nullsFirst()),
       index(`${name}_status_idx`).on(table.status),
       index(`${name}_kind_idx`).on(table.kind),
+      index(`${name}_server_idx`).on(table.serverName),
     ],
   );
 }
