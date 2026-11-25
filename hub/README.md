@@ -52,6 +52,8 @@ The container listens on `0.0.0.0`, answers `GET /healthz`, runs as an unprivile
 
 ## 3. Deploy
 
+**Already host an HTTP MCP server or web app?** You can skip this section and mount the hub inside it instead: it becomes the hub, using its own store and reader endpoint. See "No separate host?" in the [package README](../packages/typescript/README.md#servers-that-run-on-their-users-machines) for the code and the two things to get right (route order and path). The rest of this section is for a dedicated hub.
+
 Build from the repository root:
 
 ```sh

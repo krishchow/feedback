@@ -90,20 +90,32 @@ MCP_FEEDBACK_URL=https://feedback.example.com/mcp MCP_FEEDBACK_TOKEN=… mcp-fee
 MCP_FEEDBACK_URL=https://feedback.example.com/mcp MCP_FEEDBACK_TOKEN=… mcp-feedback list --server my-server
 ```
 
-Or mount it in an existing app:
+**No separate host? Mount the hub in a server you already host.** The hub is a request handler, so an HTTP MCP server you already run (or any web app) can be the hub, and its existing store and reader endpoint then hold your stdio servers' feedback too. For an Express app:
 
 ```ts
 import { createIngestHandler, toNodeListener } from "mcp-feedback/ingest";
 
+const key = JSON.parse(process.env.MCP_FEEDBACK_INGEST_KEY!); // the file `mcp-feedback ingest keygen` wrote
 const ingest = createIngestHandler({
-  issuer: "https://feedback.example.com",
-  keyring: { keys: [{ kid, publicKey }], signer: { kid, privateKey } },
-  store: postgresStore({ client: pool, table: "hub_feedback" }), // every project, namespaced by server.name
-  // projects: { "my-server": {}, legacy: { store: legacyStore } }, // optional: only these, or a store of their own
+  issuer: "https://app.example.com/api/ingest", // any stable string; tokens name it
+  basePath: "/api/ingest",                       // routes: /api/ingest/v1/enroll, /api/ingest/v1/feedback
+  keyring: { keys: [{ kid: key.kid, publicKey: key.publicKey }], signer: { kid: key.kid, privateKey: key.privateKey } },
+  store: feedbackStore,                          // the server's own store: one queue, read through its reader endpoint
+  tokenFingerprintKey: process.env.FEEDBACK_FINGERPRINT_KEY,
 });
-app.use("/v1", toNodeListener(ingest)); // before any body parser. Under another prefix, e.g. /ingest/v1, pass basePath: "/ingest"
-// Elsewhere (Workers, Deno, Bun), the handler itself is a web-standard (Request) => Promise<Response>.
+
+app.use("/api/ingest", toNodeListener(ingest, { trustProxy: true })); // 1. first
+app.use("/api", requireBearer);                                       // 2. the app's own auth, which ingest must not go through
+app.use(express.json());                                              // 3. body parsing, which would consume the hub's request body
 ```
+
+- **Order matters.** Register the hub before the app's authentication middleware, which would refuse installations (they bring their own signed tokens), and before any body parser. Or exempt its path from both.
+- **Pick a path the deployment routes to the app.** If only `/api` reaches the server, mount under `/api/…`, with the same prefix as `basePath`.
+- Installations use the mount point as their endpoint: `remoteStore({ endpoint: "https://app.example.com/api/ingest", … })`. Issue project keys with `--issuer` set to the same `issuer` string.
+- Records the server's own `submit_feedback` writes keep their authenticated caller; records from installations carry an `ingest:*` scope and their project as `server.name`, so readers can tell them apart and use `--server`.
+- Moving to a dedicated hub later means redeploying with the same key and issuer and changing the endpoint in the next release of each server. Installations on old releases keep sending to the old one, so keep it mounted until they have upgraded.
+
+Elsewhere (Workers, Deno, Bun), the handler itself is a web-standard `(Request) => Promise<Response>`; use the `projects` option to accept only listed projects or give one a store of its own.
 
 Read it like any other store: a reader endpoint over the same store (`registerFeedbackReader`), or `mcp-feedback list --postgres … --server my-server`.
 

@@ -52,7 +52,7 @@ if (!feedbackDisabled()) {
 
 ## 3. The hub (the maintainer's host)
 
-Only the first time; later servers reuse it. The easiest path is the container in `hub/` of https://github.com/krishchow/feedback, whose README lists what to configure. Or on any Node host:
+Only the first time; later servers reuse it. If the maintainer already hosts an HTTP MCP server or web app, the hub can be mounted inside it, using that app's store and reader endpoint ("No separate host?" in the package README). Otherwise the easiest path is the container in `hub/` of https://github.com/krishchow/feedback, whose README lists what to configure. Or on any Node host:
 
 ```sh
 MCP_FEEDBACK_INGEST_KEY=/secure/ingest-key.json MCP_FEEDBACK_READER_TOKEN=<32+ random characters> \
