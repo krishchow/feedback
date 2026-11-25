@@ -70,11 +70,13 @@ import { feedbackDisabled, remoteStore } from "mcp-feedback/remote";
 if (!feedbackDisabled()) {
   const store = remoteStore({ endpoint: "https://feedback.example.com", projectKey: "eyJhbGciOiJFZERTQSIs…" });
   registerFeedback(server, { store, requireConfirmation: true, destination: "the my-server maintainers" });
-  void store.flush(); // sends reports that could not be sent last time
+  void store.start(); // renews this machine's token, sends reports that could not go last time
 }
 ```
 
-On first use the installation enrols and gets its own token, kept in a per-user state directory. When the hub cannot be reached, the report is saved there and sent later, and the tool tells the agent where it is waiting; deleting the file cancels it. A report the hub refuses is not kept. `destination` adds a sentence to the tool's description saying where reports go, so the user knows before confirming. Users can turn feedback off with `MCP_FEEDBACK_DISABLED=1`.
+On first use the installation enrols and gets its own token, kept in a per-user state directory. `start()` renews that token whenever the server starts and the token is more than a day old, so a machine in use keeps the same identity indefinitely; it contacts the hub only on a machine that has used feedback before. When the hub cannot be reached, the report is saved there and sent later, and the tool tells the agent where it is waiting; deleting the file cancels it. A report the hub refuses is not kept. `destination` adds a sentence to the tool's description saying where reports go, so the user knows before confirming. Users can turn feedback off with `MCP_FEEDBACK_DISABLED=1`.
+
+**Reports as a GitHub user instead of an anonymous installation.** For your own and your team's tools, pass `signIn: "github"` (the hub needs GitHub sign-in turned on; see `hub/README.md`). The first report asks the user, through the agent, to open github.com/login/device and enter a code; the report waits on disk and goes out as soon as they approve. The sign-in is kept in the per-user state directory, shared by every server on the machine that reports to the same hub, and renewed by `start()`, so each machine signs in once. Reports then carry `identity.subject` = `github:<login>`. GitHub's own credential stays on the hub, which asks for no access beyond who the user is and discards it after reading their login.
 
 **3. The hub.** One hub serves every server you distribute. Each server's reports are kept under its project name (`server.name`) in one store, and the hub accepts any project your key issued a project key for, so a new server needs a project key and nothing else. `hub/` in the repository has a Dockerfile and deployment notes; or run it directly:
 
@@ -124,7 +126,7 @@ Read it like any other store: a reader endpoint over the same store (`registerFe
 | Scope | Sent with | Means |
 | --- | --- | --- |
 | `ingest:install` | The token an installation got by enrolling | Anonymous. Records with the same `identity.subject` come from one installation. Anyone with the package can enrol. |
-| `ingest:issued` | `mcp-feedback ingest issue-token --project my-server --subject alice@example.com` | From whoever you gave that token to. Pass it to `remoteStore` as `token`, e.g. from an environment variable. |
+| `ingest:issued` | A token naming a person: `github:<login>` after GitHub sign-in, or one you issued with `mcp-feedback ingest issue-token --project my-server --subject alice@example.com` and passed to `remoteStore` as `token` | From that person. |
 
 The content of every report is untrusted, whichever token sent it. The hub stamps identity, project, time and status itself and ignores those fields in the request; it limits reports per installation, per issued subject and per project each day; and revoking a `jti` or a subject refuses that token from then on. The protocol is in `spec/ingest.md`.
 

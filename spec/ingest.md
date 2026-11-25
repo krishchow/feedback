@@ -12,7 +12,8 @@ An installed server cannot keep a secret: anything it ships is public. So instal
 | --- | --- | --- |
 | `project` | The maintainer, once per project; ships inside the server package | The request names a project the hub knows. Public, so it proves nothing about the sender. |
 | `install` | The hub, to one installation when it enrols | Reports with the same subject come from the same installation. Anonymous. |
-| `issued` | The maintainer, to a person or team they know, delivered privately | The submitter is the token's subject. |
+| `issued` | The maintainer, to a person or team they know; or the hub, for one project, to a person who signed in | The submitter is the token's subject. |
+| `user` | The hub, to a person who signed in (e.g. with GitHub), for every project on the hub | Who signed in. It can only be exchanged for that person's `issued` token for one project, or renewed. |
 
 Feedback content is untrusted in every tier, as everywhere else in this specification. Install-tier reports come from anyone who has the package.
 
@@ -26,10 +27,10 @@ A token is a compact JWT (RFC 7519) signed with Ed25519 (`alg` `EdDSA`).
   | Claim | Value |
   | --- | --- |
   | `iss` | The hub's identity, usually its public URL. A hub MUST reject a token naming another. |
-  | `prj` | The project: lowercase letters, digits, `.`, `_` or `-`, starting with a letter or digit, at most 64. |
-  | `tier` | `project`, `install` or `issued`. |
-  | `sub` | `project:<prj>` for a project key; `install:<random>` for an install token; for an issued token, the subject the maintainer chose (at most 200 characters). |
-  | `iat`, `exp` | Seconds since the epoch. `exp` is REQUIRED for `install` and `issued` tokens and optional for project keys. |
+  | `prj` | The project: lowercase letters, digits, `.`, `_` or `-`, starting with a letter or digit, at most 64. `*` for a `user` token, and only for one. |
+  | `tier` | `project`, `install`, `issued` or `user`. |
+  | `sub` | `project:<prj>` for a project key; `install:<random>` for an install token; `<provider>:<login>` (e.g. `github:octocat`) for a person who signed in; for a token a maintainer issued, the subject they chose (at most 200 characters). |
+  | `iat`, `exp` | Seconds since the epoch. `exp` is REQUIRED for every tier but `project`. |
   | `jti` | A unique id (at most 64 characters), so one token can be revoked. |
 
 - A hub SHOULD allow five minutes of clock difference on `iat` and `exp`.
@@ -37,17 +38,46 @@ A token is a compact JWT (RFC 7519) signed with Ed25519 (`alg` `EdDSA`).
 
 ## Endpoints
 
-Both take `POST` with a JSON body and a bearer token (`Authorization: Bearer <token>`). Errors are `{ "error": { "code": <string>, "message": <string> } }`; the message MUST be safe to show to an agent and SHOULD say what to do.
+All but the discovery document take `POST` with a JSON body and a bearer token (`Authorization: Bearer <token>`). Errors are `{ "error": { "code": <string>, "message": <string> } }`; the message MUST be safe to show to an agent and SHOULD say what to do. Paths are relative to the hub's base URL, which may include a path when the hub is mounted inside another application.
+
+### `GET <base>/.well-known/mcp-feedback`
+
+No authentication. What the hub offers:
+
+```json
+{
+  "issuer": "https://feedback.example.com",
+  "endpoints": { "enroll": "/v1/enroll", "feedback": "/v1/feedback", "renew": "/v1/renew" },
+  "signin": { "github": { "start": "/v1/signin/github/start", "poll": "/v1/signin/github/poll" } },
+  "install_token_ttl_seconds": 2592000,
+  "user_token_ttl_seconds": 15552000
+}
+```
+
+`signin` is `{}` when the hub offers no sign-in, and `user_token_ttl_seconds` is then `null`.
 
 ### `POST <base>/v1/enroll`
 
-Bearer: a `project` token. Body: `{}`. Returns `201`:
+Bearer: a `project` token. Body: `{}` for an anonymous installation, or `{ "user_token": <user token> }` for a person who signed in. Returns `201`:
 
 ```json
-{ "token": "<install token>", "subject": "install:…", "expires_at": "2026-12-26T00:00:00.000Z" }
+{ "token": "<token>", "subject": "install:…", "tier": "install", "expires_at": "2026-12-26T00:00:00.000Z" }
 ```
 
-A hub that has no signing key answers `501` (`not_enrolling`). A hub SHOULD limit enrolments per network address.
+With a valid, unrevoked `user_token`, the token is that person's `issued` token for the project key's project, with the user token's `sub`; otherwise `401` (or `403` if revoked). A hub that has no signing key answers `501` (`not_enrolling`). A hub SHOULD limit anonymous enrolments per network address.
+
+### `POST <base>/v1/renew`
+
+Bearer: an `install` or `user` token that is still valid and not revoked. Body: `{}`. Returns `200` with a new token of the same tier, project and subject and a new expiry, in the same shape as enrolment. A machine that keeps renewing keeps its identity indefinitely; one that stops lets its token expire.
+
+### `POST <base>/v1/signin/github/start` and `…/poll`
+
+Bearer: a `project` token. The hub runs GitHub's OAuth device flow on the installation's behalf, so GitHub's credential never leaves the hub.
+
+- `start` (body `{}`) returns `{ verification_uri, user_code, expires_in, interval, handle }`. The installation shows the user the URI and code.
+- `poll` (body `{ "handle": … }`, no more often than `interval` seconds) answers `202 { "status": "pending" }` (with a larger `interval` when GitHub asks to slow down) until the user acts, then `200` with a `user` token for `github:<login>`, `403` (`signin_denied`, `not_allowed`, `revoked`) or `410` (`signin_expired`).
+- The hub requests no GitHub scopes, or `read:org` when it accepts only members of listed organisations, and discards GitHub's token once it has read the login.
+- A hub without GitHub sign-in answers `501` (`not_signing_in`).
 
 ### `POST <base>/v1/feedback`
 
@@ -118,6 +148,8 @@ A client is a sink: it provides `insert(record)` only, so `registerFeedback` can
 
 - It sends to `https`, or to `http` only on the same machine.
 - It enrols with the project key the first time, keeps the install token in a per-user state directory readable only by the user, and enrols again when the hub answers `401`. An issued token, when configured, is used as it is.
+- It SHOULD renew its stored tokens when the server starts and they are more than a day old, so a machine in use never has to enrol or sign in again. It MUST NOT contact the hub at start on a machine that holds no token and no queued report.
+- With sign-in, it keeps the `user` token where every server on the machine that reports to the same hub can use it, and exchanges it at enrolment for each project. A report filed before the user has signed in waits in the queue, and the tool tells the agent the URI and code to give the user.
 - It sends the record's own `id`, so a retry is recognised.
 - When the hub cannot be reached, or answers `429` or `5xx`, it MAY keep the report in a local queue and send it later, telling the agent it did so and where the report is waiting. It MUST NOT queue a report the hub refused (`400`, `403`, `404`, `409`, `413`). A queue MUST be bounded in size and age (30 days).
 - A host that uses a client MUST honour `MCP_FEEDBACK_DISABLED=1` by not registering the submit tool at all.

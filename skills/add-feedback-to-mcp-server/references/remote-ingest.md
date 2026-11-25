@@ -29,7 +29,7 @@ if (!feedbackDisabled()) {
   const store = remoteStore({
     endpoint: FEEDBACK_ENDPOINT,
     projectKey: FEEDBACK_PROJECT_KEY,
-    token: process.env.<SERVER>_FEEDBACK_TOKEN, // optional: an issued token, for users the maintainer knows
+    // signIn: "github", // only for tools used by the maintainer and people they know; see below
     onError: (error) => console.error("feedback:", error), // stderr: stdout carries the protocol
   });
   registerFeedback(server, {
@@ -38,7 +38,7 @@ if (!feedbackDisabled()) {
     destination: "the <server> maintainers",
     attachContext: () => ({ version: "<server version>", platform: process.platform }),
   });
-  void store.flush(); // sends reports queued while the hub was unreachable
+  void store.start(); // renews this machine's token once a day, sends reports queued while the hub was unreachable
 }
 ```
 
@@ -48,6 +48,7 @@ if (!feedbackDisabled()) {
 - **`attachContext`** is the place for the server's version and platform. Nothing from the user's files, paths, environment or hostname: it is sent off the machine.
 - The installation's token and any queued reports live in a per-user state directory (`~/Library/Application Support/mcp-feedback/<project>` on macOS, `$XDG_STATE_HOME/mcp-feedback/<project>` on Linux). When the hub cannot be reached, the tool result says the report was queued and where, and it is sent on the next start or report. A report the hub refuses is not kept.
 - Do not add `resolveIdentity` or `requireIdentity`: the hub stamps identity from each installation's token.
+- `start()` contacts the hub only on a machine that has used feedback before, at most once a day. Call it once at startup, not per request.
 - Tests: use `memoryStore()` in place of `remoteStore` where tests build the server, as for any store.
 
 ## 3. The hub (the maintainer's host)
@@ -67,15 +68,14 @@ MCP_FEEDBACK_INGEST_KEY=/secure/ingest-key.json MCP_FEEDBACK_READER_TOKEN=<32+ r
 
 Reading: with `MCP_FEEDBACK_READER_TOKEN` set, the hub serves the reader tools for all projects at `<hub URL>/mcp`. `MCP_FEEDBACK_URL=<hub URL>/mcp MCP_FEEDBACK_TOKEN=… npx -y mcp-feedback stats` shows every project (`by_server`); add `--server <project>` for one. Run `set-up-feedback-reading` afterwards, as the main skill says.
 
-## Issued tokens
+## Anonymous or signed in
 
-For a person or team the maintainer knows (a design partner, an internal team), issue a token and deliver it privately; they set it in the environment variable the server reads:
+Ask which the maintainer wants; do not decide for them.
 
-```sh
-npx -y mcp-feedback ingest issue-token --project <project> --subject <who> --days 90 --key ingest-key.json --issuer <hub URL>
-```
+- **Anonymous (the default, and right for a public package).** Each installation is `install:<random>`: stable per machine, tells the maintainer nothing about who the user is.
+- **Signed in with GitHub (`signIn: "github"`)**, for tools used by the maintainer, their team or design partners. The hub must have GitHub sign-in turned on (`MCP_FEEDBACK_GITHUB_CLIENT_ID`; `hub/README.md`). The first report on a machine comes back `queued` with a note telling the user to open github.com/login/device and enter a code; relay it exactly. The report is sent as soon as they approve, the sign-in is shared by every server on the machine using that hub, and `start()` renews it, so it happens once per machine. Reports carry `github:<login>`. Say in the server's README that feedback asks for a GitHub sign-in, and make the `destination` sentence mention it.
 
-Their reports carry `identity.subject` = `<who>` and `identity.scopes` = `["ingest:issued"]`. Everyone else's are `ingest:install`: anonymous, one subject per installation.
+Reports from both carry `identity.scopes`: `["ingest:install"]` or `["ingest:issued"]`.
 
 ## Verify
 

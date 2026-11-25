@@ -8,18 +8,23 @@ import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, si
  * What a token was issued for.
  * - `project`: names a project. Ships inside a distributed package, so it is public; it can only enrol.
  * - `install`: issued by the hub to one installation when it enrols. Anonymous but stable.
- * - `issued`: issued by a maintainer to a person or team they know.
+ * - `issued`: names a person: issued by a maintainer, or by the hub to someone signed in.
+ * - `user`: a person who signed in (e.g. with GitHub), for every project on the hub. It can only be
+ *   exchanged for that person's `issued` token for one project, or renewed.
  */
-export const TOKEN_TIERS = ["project", "install", "issued"] as const;
+export const TOKEN_TIERS = ["project", "install", "issued", "user"] as const;
+
+/** `prj` of a `user` token: it is good for every project on the hub. */
+export const ANY_PROJECT = "*";
 export type TokenTier = (typeof TOKEN_TIERS)[number];
 
 export interface TokenClaims {
   /** The hub that will accept the token. */
   iss: string;
-  /** The project the token belongs to. */
+  /** The project the token belongs to; `*` for a `user` token. */
   prj: string;
   tier: TokenTier;
-  /** Who it was issued to: `project:<name>`, `install:<random>`, or the subject a maintainer chose. */
+  /** Who it was issued to: `project:<name>`, `install:<random>`, `github:<login>`, or the subject a maintainer chose. */
   sub: string;
   /** Issued at, seconds since the epoch. */
   iat: number;
@@ -110,7 +115,9 @@ export function newTokenId(): string {
 /** Signs a token. Callers decide the claims; `issueToken` is the usual way in. */
 export function signToken(claims: TokenClaims, signer: SigningKey): string {
   if (!KID_PATTERN.test(signer.kid)) throw new Error("kid must be 1 to 64 letters, digits, _ or -.");
-  if (!isValidProjectName(claims.prj)) throw new Error("Project names are lowercase letters, digits, ., _ or -, at most 64.");
+  if (claims.tier === "user" ? claims.prj !== ANY_PROJECT : !isValidProjectName(claims.prj)) {
+    throw new Error("Project names are lowercase letters, digits, ., _ or -, at most 64 (and * only for a user token).");
+  }
   if (claims.tier !== "project" && claims.exp === undefined) throw new Error(`An ${claims.tier} token needs an expiry.`);
   const header = b64(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: signer.kid }));
   const payload = b64(JSON.stringify(claims));
@@ -126,7 +133,7 @@ export function issueToken(
   const iat = Math.floor((options.now ?? new Date()).getTime() / 1000);
   const subject =
     options.subject ?? (options.tier === "project" ? `project:${options.project}` : options.tier === "install" ? `install:${newTokenId()}` : undefined);
-  if (!subject) throw new Error("An issued token needs a subject: who it is for.");
+  if (!subject) throw new Error(`An ${options.tier} token needs a subject: who it is for.`);
   const claims: TokenClaims = {
     iss: options.issuer,
     prj: options.project,
@@ -153,9 +160,9 @@ function isClaims(value: unknown): value is TokenClaims {
   return (
     typeof claims.iss === "string" &&
     typeof claims.prj === "string" &&
-    isValidProjectName(claims.prj) &&
     typeof claims.tier === "string" &&
     (TOKEN_TIERS as readonly string[]).includes(claims.tier) &&
+    (claims.tier === "user" ? claims.prj === ANY_PROJECT : isValidProjectName(claims.prj)) &&
     typeof claims.sub === "string" &&
     claims.sub.length > 0 &&
     claims.sub.length <= 200 &&

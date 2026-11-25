@@ -6,7 +6,14 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { INGEST_PATHS, MAX_QUEUE_AGE_DAYS, toIngestSubmission, unverifiedProjectOf, type IngestSubmission } from "./ingest/protocol.js";
+import {
+  INGEST_PATHS,
+  MAX_QUEUE_AGE_DAYS,
+  toIngestSubmission,
+  unverifiedClaimsOf,
+  unverifiedProjectOf,
+  type IngestSubmission,
+} from "./ingest/protocol.js";
 import { FeedbackDeliveryError, type FeedbackReceipt, type FeedbackSink } from "./store.js";
 import type { FeedbackRecord } from "./types.js";
 
@@ -20,14 +27,27 @@ export interface RemoteStoreOptions {
   projectKey?: string;
   /** A token the maintainer issued to a known person or team, usually read from the environment. Skips enrolment. */
   token?: string;
-  /** Where the installation's token and queued reports are kept. Defaults to the platform's per-user state directory. */
+  /**
+   * `"github"`: reports go out as the person who signed in with GitHub, not as an anonymous
+   * installation. The first report asks them to sign in, once per machine; the sign-in is shared by
+   * every server on the machine that reports to the same hub, and renewed as they start. The hub
+   * must offer GitHub sign-in.
+   */
+  signIn?: "github";
+  /** Where this server's token and queued reports are kept. Defaults to the platform's per-user state directory. */
   stateDir?: string;
+  /** Where a sign-in is kept, shared by the servers that report to this hub. Defaults to the per-user state directory. */
+  identityDir?: string;
+  /** start() renews stored tokens once they are this old. Default one day. */
+  renewAfterSeconds?: number;
   /** Limits on reports waiting to be sent. `false` turns the queue off, so an unreachable hub is an error. */
   queue?: { maxItems?: number; maxAgeDays?: number } | false;
   /** Per request. Default 10 seconds. */
   timeoutMs?: number;
   /** For tests. */
   fetch?: typeof fetch;
+  /** For tests: the shortest wait between polls of a pending sign-in. */
+  signInPollMs?: number;
   /** Called with errors that do not reach the agent, e.g. a queued report the hub refused. For the host's logger. */
   onError?: (error: unknown) => void;
 }
@@ -39,12 +59,23 @@ export interface FlushResult {
   remaining: number;
 }
 
+export interface StartResult extends FlushResult {
+  /** Tokens renewed: `user` for the sign-in, `project` for this server's own. */
+  renewed: Array<"user" | "project">;
+}
+
 export interface RemoteStore extends FeedbackSink {
-  /** Resolves `stored` once the hub has the report, or `queued` with a note saying where it is waiting. */
+  /** Resolves `stored` once the hub has the report, or `queued` with a note saying where it is waiting and why. */
   insert(record: FeedbackRecord): Promise<FeedbackReceipt>;
-  /** Sends any queued reports. Call once when the server starts; insert also calls it. Never throws. */
+  /**
+   * Call once when the server starts. Renews stored tokens that are more than a day old, so a machine
+   * in use never has to enrol or sign in again, then sends queued reports. Contacts the hub only if
+   * this machine already has a token or a queued report. Never throws.
+   */
+  start(): Promise<StartResult>;
+  /** Sends any queued reports. insert also calls it. Never throws. */
   flush(): Promise<FlushResult>;
-  /** Where the installation's token and queue are kept. */
+  /** Where this server's token and queue are kept. */
   readonly stateDir: string;
 }
 
@@ -53,14 +84,14 @@ export function feedbackDisabled(env: Record<string, string | undefined> = proce
   return /^(1|true|yes)$/i.test(env.MCP_FEEDBACK_DISABLED ?? "");
 }
 
-function defaultStateDir(project: string): string {
+function stateRoot(): string {
   const home = homedir();
-  if (platform() === "darwin") return join(home, "Library", "Application Support", "mcp-feedback", project);
-  if (platform() === "win32") return join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "mcp-feedback", project);
-  return join(process.env.XDG_STATE_HOME || join(home, ".local", "state"), "mcp-feedback", project);
+  if (platform() === "darwin") return join(home, "Library", "Application Support", "mcp-feedback");
+  if (platform() === "win32") return join(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "mcp-feedback");
+  return join(process.env.XDG_STATE_HOME || join(home, ".local", "state"), "mcp-feedback");
 }
 
-function checkEndpoint(endpoint: string): string {
+function checkEndpoint(endpoint: string): URL {
   let url: URL;
   try {
     url = new URL(endpoint);
@@ -71,13 +102,14 @@ function checkEndpoint(endpoint: string): string {
   if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
     throw new Error("remoteStore: the endpoint must use https (plain http is allowed only for localhost).");
   }
-  return url.href.replace(/\/+$/, "");
+  return url;
 }
 
 type Outcome =
   | { kind: "delivered" }
   | { kind: "retry"; reason: string }
   | { kind: "reauth" }
+  | { kind: "signin" }
   | { kind: "refused"; message: string };
 
 interface CachedToken {
@@ -91,10 +123,23 @@ interface QueuedReport {
   submission: IngestSubmission;
 }
 
+interface PendingSignIn {
+  verificationUri: string;
+  userCode: string;
+  handle: string;
+  expiresAt: number;
+  intervalMs: number;
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 /** A failure worth retrying later: the hub is down, overloaded or unreachable. */
+class RetryableError extends Error {}
+
+/** No usable sign-in on this machine: the user has to sign in before reports can go. */
+class SignInRequired extends Error {}
+
 async function hubMessage(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: { message?: unknown } };
@@ -105,17 +150,31 @@ async function hubMessage(response: Response): Promise<string> {
   return `The feedback service answered ${response.status}.`;
 }
 
+/** Worth trying again later. 501 means the hub does not offer something at all, which waiting will not change. */
+const retryable = (status: number) => status === 429 || (status >= 500 && status !== 501);
+
+const sleep = (ms: number) =>
+  new Promise<void>((resolve) => {
+    // A wait for a sign-in must not keep a server process alive after its client has gone.
+    setTimeout(resolve, ms).unref();
+  });
+
 export function remoteStore(options: RemoteStoreOptions): RemoteStore {
-  const endpoint = checkEndpoint(options.endpoint);
+  const url = checkEndpoint(options.endpoint);
+  const endpoint = url.href.replace(/\/+$/, "");
   const credential = options.token ?? options.projectKey;
   if (!credential) throw new Error("remoteStore: pass projectKey (or an issued token).");
   const project = unverifiedProjectOf(credential);
   if (!project) throw new Error("remoteStore: the project key is not one an mcp-feedback hub issues.");
-  const stateDir = options.stateDir ?? defaultStateDir(project);
+  if (options.signIn && !options.projectKey) throw new Error("remoteStore: signIn needs the projectKey.");
+  const stateDir = options.stateDir ?? join(stateRoot(), project);
+  const identityDir = options.identityDir ?? join(stateRoot(), "_hubs", `${url.host}${url.pathname}`.replace(/[^A-Za-z0-9.-]+/g, "_"));
   const queueDir = join(stateDir, "queue");
   const tokenFile = join(stateDir, "token.json");
+  const userFile = join(identityDir, "user.json");
   const queueLimits = options.queue === false ? null : { maxItems: 50, maxAgeDays: MAX_QUEUE_AGE_DAYS, ...options.queue };
   const timeoutMs = options.timeoutMs ?? 10_000;
+  const renewAfterMs = (options.renewAfterSeconds ?? 24 * 60 * 60) * 1000;
   const doFetch = options.fetch ?? fetch;
   const userAgent = `mcp-feedback-remote/${version}`;
 
@@ -127,55 +186,139 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
       signal: AbortSignal.timeout(timeoutMs),
     });
 
-  const ensureDir = (dir: string) => mkdir(dir, { recursive: true, mode: 0o700 });
-
   /** Writes through a temporary file, so a crash never leaves half a file for the next run to choke on. */
   const writePrivate = async (file: string, value: unknown) => {
+    await mkdir(join(file, ".."), { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.tmp`;
     await writeFile(temp, JSON.stringify(value), { mode: 0o600 });
     await rename(temp, file);
   };
 
-  // ---- the installation's token
-
-  let enrolling: Promise<string> | undefined;
-
-  const cachedToken = async (): Promise<string | null> => {
+  const readCached = async (file: string): Promise<CachedToken | null> => {
     try {
-      const cached = JSON.parse(await readFile(tokenFile, "utf8")) as CachedToken;
-      if (cached.endpoint === endpoint && Date.parse(cached.expires_at) - Date.now() > DAY_MS) return cached.token;
+      const cached = JSON.parse(await readFile(file, "utf8")) as CachedToken;
+      return cached.endpoint === endpoint && typeof cached.token === "string" ? cached : null;
     } catch {
-      // None yet, or unreadable: enrol again.
+      return null;
     }
-    return null;
   };
 
-  const enroll = async (): Promise<string> => {
-    const response = await request(INGEST_PATHS.enroll, options.projectKey!);
-    if (!response.ok) {
-      const message = await hubMessage(response);
-      if (response.status === 429 || response.status >= 500) throw new RetryableError(message);
-      throw new FeedbackDeliveryError(`The feedback service did not accept this server's project key: ${message}`);
-    }
+  const save = (file: string, body: { token: string; expires_at: string }) =>
+    writePrivate(file, { endpoint, token: body.token, expires_at: body.expires_at } satisfies CachedToken);
+
+  /** A cached token with more than a day to run, or null. */
+  const usable = (cached: CachedToken | null): CachedToken | null =>
+    cached && Date.parse(cached.expires_at) - Date.now() > DAY_MS ? cached : null;
+
+  const tokenBody = async (response: Response): Promise<{ token: string; expires_at: string }> => {
     const body = (await response.json()) as { token?: unknown; expires_at?: unknown };
     if (typeof body.token !== "string" || typeof body.expires_at !== "string") {
-      throw new RetryableError("The feedback service gave an unexpected answer to enrolment.");
+      throw new RetryableError("The feedback service gave an unexpected answer.");
     }
-    await ensureDir(stateDir);
-    await writePrivate(tokenFile, { endpoint, token: body.token, expires_at: body.expires_at } satisfies CachedToken);
+    return { token: body.token, expires_at: body.expires_at };
+  };
+
+  // ---- this server's token
+
+  let acquiring: Promise<string> | undefined;
+
+  /** With a sign-in, the hub makes this installation that person for this project; without, it is anonymous. */
+  const enroll = async (userToken?: string): Promise<string> => {
+    const response = await request(INGEST_PATHS.enroll, options.projectKey!, userToken ? { user_token: userToken } : {});
+    if (!response.ok) {
+      const message = await hubMessage(response);
+      if (retryable(response.status)) throw new RetryableError(message);
+      if (userToken && (response.status === 401 || response.status === 403)) {
+        // The sign-in expired or was revoked: drop it and ask again.
+        await rm(userFile, { force: true });
+        throw new SignInRequired(message);
+      }
+      throw new FeedbackDeliveryError(`The feedback service did not accept this server's project key: ${message}`);
+    }
+    const body = await tokenBody(response);
+    await save(tokenFile, body);
     return body.token;
   };
 
-  const installToken = async (fresh = false): Promise<string> => {
+  const acquire = async (): Promise<string> => {
+    if (options.signIn !== "github") return enroll();
+    const user = usable(await readCached(userFile));
+    if (!user) throw new SignInRequired("No sign-in on this machine.");
+    return enroll(user.token);
+  };
+
+  const serverToken = async (fresh = false): Promise<string> => {
     if (options.token) return options.token;
     if (!fresh) {
-      const cached = await cachedToken();
-      if (cached) return cached;
+      const cached = usable(await readCached(tokenFile));
+      // In sign-in mode, a token from earlier anonymous use does not count.
+      if (cached && (options.signIn !== "github" || unverifiedClaimsOf(cached.token)?.tier === "issued")) return cached.token;
     }
-    enrolling ??= enroll().finally(() => {
-      enrolling = undefined;
+    acquiring ??= acquire().finally(() => {
+      acquiring = undefined;
     });
-    return enrolling;
+    return acquiring;
+  };
+
+  // ---- signing in with GitHub
+
+  let pending: PendingSignIn | undefined;
+
+  const pollSignIn = async (signIn: PendingSignIn) => {
+    let interval = signIn.intervalMs;
+    while (pending === signIn && Date.now() < signIn.expiresAt) {
+      await sleep(interval);
+      let response: Response;
+      try {
+        response = await request(INGEST_PATHS.githubPoll, options.projectKey!, { handle: signIn.handle });
+      } catch {
+        continue; // Unreachable for a moment; keep trying until the code expires.
+      }
+      if (response.status === 202) {
+        const body = (await response.json().catch(() => ({}))) as { interval?: unknown };
+        if (typeof body.interval === "number") interval = Math.max(interval, body.interval * 1000);
+        continue;
+      }
+      if (response.ok) {
+        try {
+          await save(userFile, await tokenBody(response));
+          pending = undefined;
+          await flushInternal(); // the reports that were waiting for it
+        } catch (error) {
+          options.onError?.(error);
+        }
+        return;
+      }
+      pending = undefined;
+      options.onError?.(new FeedbackDeliveryError(`GitHub sign-in did not complete: ${await hubMessage(response)}`));
+      return;
+    }
+    if (pending === signIn) pending = undefined;
+  };
+
+  /** Starts a sign-in, or returns the one already waiting for the user. */
+  const beginSignIn = async (): Promise<PendingSignIn> => {
+    if (pending && pending.expiresAt - Date.now() > 60_000) return pending;
+    const response = await request(INGEST_PATHS.githubStart, options.projectKey!);
+    if (!response.ok) {
+      const message = await hubMessage(response);
+      if (retryable(response.status)) throw new RetryableError(message);
+      throw new FeedbackDeliveryError(`This server sends feedback as a GitHub user, but the feedback service could not start a sign-in: ${message}`);
+    }
+    const body = (await response.json()) as { verification_uri?: unknown; user_code?: unknown; handle?: unknown; expires_in?: unknown; interval?: unknown };
+    if (typeof body.verification_uri !== "string" || typeof body.user_code !== "string" || typeof body.handle !== "string") {
+      throw new RetryableError("The feedback service gave an unexpected answer to a sign-in request.");
+    }
+    const signIn: PendingSignIn = {
+      verificationUri: body.verification_uri,
+      userCode: body.user_code,
+      handle: body.handle,
+      expiresAt: Date.now() + (Number(body.expires_in) || 900) * 1000,
+      intervalMs: options.signInPollMs ?? (Number(body.interval) || 5) * 1000,
+    };
+    pending = signIn;
+    void pollSignIn(signIn);
+    return signIn;
   };
 
   // ---- sending one report
@@ -183,15 +326,16 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
   const send = async (submission: IngestSubmission, fresh = false): Promise<Outcome> => {
     let response: Response;
     try {
-      response = await request(INGEST_PATHS.feedback, await installToken(fresh), submission);
+      response = await request(INGEST_PATHS.feedback, await serverToken(fresh), submission);
     } catch (error) {
+      if (error instanceof SignInRequired) return { kind: "signin" };
       if (error instanceof FeedbackDeliveryError) return { kind: "refused", message: error.message };
       return { kind: "retry", reason: error instanceof Error ? error.message : String(error) };
     }
     if (response.ok) return { kind: "delivered" };
     if (response.status === 401 && !options.token && !fresh) return { kind: "reauth" };
     const message = await hubMessage(response);
-    if (response.status === 429 || response.status >= 500) return { kind: "retry", reason: message };
+    if (retryable(response.status)) return { kind: "retry", reason: message };
     return { kind: "refused", message: `The feedback service refused the report: ${message}` };
   };
 
@@ -210,10 +354,11 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
     }
   };
 
-  let flushing: Promise<FlushResult & { unreachable: boolean }> | undefined;
+  type FlushState = FlushResult & { blocked: "unreachable" | "signin" | null };
+  let flushing: Promise<FlushState> | undefined;
 
-  const flushOnce = async (): Promise<FlushResult & { unreachable: boolean }> => {
-    const result = { delivered: 0, dropped: 0, remaining: 0, unreachable: false };
+  const flushOnce = async (): Promise<FlushState> => {
+    const result: FlushState = { delivered: 0, dropped: 0, remaining: 0, blocked: null };
     const files = await queued();
     for (const [index, name] of files.entries()) {
       const file = join(queueDir, name);
@@ -231,9 +376,9 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
         continue;
       }
       const outcome = await deliver(item.submission);
-      if (outcome.kind === "retry") {
-        // Unreachable now; the rest stays for next time.
-        result.unreachable = true;
+      if (outcome.kind === "retry" || outcome.kind === "signin") {
+        // Cannot send now; the rest stays for next time.
+        result.blocked = outcome.kind === "retry" ? "unreachable" : "signin";
         result.remaining = files.length - index;
         break;
       }
@@ -249,9 +394,9 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
 
   const flushInternal = () => {
     flushing ??= flushOnce()
-      .catch((error) => {
+      .catch((error): FlushState => {
         options.onError?.(error);
-        return { delivered: 0, dropped: 0, remaining: 0, unreachable: true };
+        return { delivered: 0, dropped: 0, remaining: 0, blocked: "unreachable" };
       })
       .finally(() => {
         flushing = undefined;
@@ -259,24 +404,64 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
     return flushing;
   };
 
-  const enqueue = async (record: FeedbackRecord, submission: IngestSubmission, reason: string): Promise<FeedbackReceipt> => {
-    if (!queueLimits) throw new FeedbackDeliveryError(`The feedback service could not be reached (${reason}). Nothing was sent.`);
+  /** Saves a report to send later. `note` tells the user why and where; `withoutQueue` is the error when queueing is off. */
+  const enqueue = async (
+    record: FeedbackRecord,
+    submission: IngestSubmission,
+    note: (file: string) => string,
+    withoutQueue: string,
+  ): Promise<FeedbackReceipt> => {
+    if (!queueLimits) throw new FeedbackDeliveryError(`${withoutQueue} Nothing was sent.`);
     const waiting = await queued();
     if (waiting.length >= queueLimits.maxItems) {
       throw new FeedbackDeliveryError(
-        `The feedback service could not be reached, and ${waiting.length} earlier reports are already waiting on this machine. ` +
+        `The report could not be sent, and ${waiting.length} earlier reports are already waiting on this machine. ` +
           "Nothing was sent or saved; try again later.",
       );
     }
-    await ensureDir(queueDir);
     const file = join(queueDir, `${record.id}.json`);
     await writePrivate(file, { queued_at: new Date().toISOString(), submission } satisfies QueuedReport);
-    return {
-      delivery: "queued",
-      note:
-        `The feedback service could not be reached, so the report was saved on this machine at ${file} and will be sent ` +
-        "the next time this server starts or files feedback. Deleting that file cancels it.",
-    };
+    return { delivery: "queued", note: note(file) };
+  };
+
+  const unreachableNote = (file: string) =>
+    `The feedback service could not be reached, so the report was saved on this machine at ${file} and will be sent ` +
+    "the next time this server starts or files feedback. Deleting that file cancels it.";
+  const queueUnreachable = (record: FeedbackRecord, submission: IngestSubmission) =>
+    enqueue(record, submission, unreachableNote, "The feedback service could not be reached.");
+
+  const queueForSignIn = async (record: FeedbackRecord, submission: IngestSubmission): Promise<FeedbackReceipt> => {
+    let signIn: PendingSignIn;
+    try {
+      signIn = await beginSignIn();
+    } catch (error) {
+      if (error instanceof FeedbackDeliveryError) throw error;
+      return queueUnreachable(record, submission);
+    }
+    const minutes = Math.max(1, Math.round((signIn.expiresAt - Date.now()) / 60_000));
+    const instruction =
+      `Reports from this server are sent as your GitHub user, so sign in once on this machine: open ${signIn.verificationUri} ` +
+      `and enter the code ${signIn.userCode} within ${minutes} minutes.`;
+    return enqueue(
+      record,
+      submission,
+      (file) => `${instruction} The report is saved at ${file} and is sent as soon as you approve. Deleting that file cancels it.`,
+      `${instruction} Then file the report again.`,
+    );
+  };
+
+  /** Renews a stored token once it is older than renewAfterSeconds. Forgets it if the hub no longer accepts it. */
+  const renewIfOld = async (file: string, renew: (token: string) => Promise<Response>): Promise<boolean> => {
+    const cached = await readCached(file);
+    const claims = cached && unverifiedClaimsOf(cached.token);
+    if (!cached || !claims || Date.now() - claims.iat * 1000 < renewAfterMs) return false;
+    const response = await renew(cached.token);
+    if (response.ok) {
+      await save(file, await tokenBody(response));
+      return true;
+    }
+    if ([401, 403, 404].includes(response.status)) await rm(file, { force: true });
+    return false;
   };
 
   return {
@@ -285,17 +470,40 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
       const submission = toIngestSubmission(record);
       // Older reports go first, and a hub that is down is found out once, not twice.
       const flushed = await flushInternal();
-      if (flushed.unreachable && flushed.remaining > 0) return enqueue(record, submission, "earlier reports are still waiting");
+      if (flushed.blocked === "unreachable" && flushed.remaining > 0) return queueUnreachable(record, submission);
+      if (flushed.blocked === "signin" && flushed.remaining > 0) return queueForSignIn(record, submission);
       const outcome = await deliver(submission);
       if (outcome.kind === "delivered") return { delivery: "stored" };
-      if (outcome.kind === "retry") return enqueue(record, submission, outcome.reason);
+      if (outcome.kind === "retry") return queueUnreachable(record, submission);
+      if (outcome.kind === "signin") return queueForSignIn(record, submission);
       throw new FeedbackDeliveryError(outcome.kind === "refused" ? outcome.message : "The feedback service refused the report.");
     },
+    async start() {
+      const renewed: StartResult["renewed"] = [];
+      if (!options.token) {
+        try {
+          if (await renewIfOld(userFile, (token) => request(INGEST_PATHS.renew, token))) renewed.push("user");
+          const renewedProject = await renewIfOld(tokenFile, async (token) => {
+            if (unverifiedClaimsOf(token)?.tier === "install") return request(INGEST_PATHS.renew, token);
+            // A signed-in person's token for this project is renewed from their sign-in.
+            const user = usable(await readCached(userFile));
+            return user
+              ? request(INGEST_PATHS.enroll, options.projectKey!, { user_token: user.token })
+              : new Response(null, { status: 401 });
+          });
+          if (renewedProject) renewed.push("project");
+        } catch (error) {
+          // Offline, or the hub is down: the tokens still work until they expire, so this is not worth reporting.
+          const network = error instanceof RetryableError || error instanceof TypeError || (error as Error)?.name === "TimeoutError";
+          if (!network) options.onError?.(error);
+        }
+      }
+      const { blocked: _blocked, ...flushed } = await flushInternal();
+      return { ...flushed, renewed };
+    },
     async flush() {
-      const { unreachable: _unreachable, ...result } = await flushInternal();
+      const { blocked: _blocked, ...result } = await flushInternal();
       return result;
     },
   };
 }
-
-class RetryableError extends Error {}

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createIngestHandler, generateKeyPair, issueToken, publicKeyOf } from "../src/ingest/index.js";
 import { memoryStore, type FeedbackStore } from "../src/index.js";
 import { uuidv7 } from "../src/register.js";
-import { ISSUER, post, startHub, submission } from "./ingest-helpers.js";
+import { fakeGitHub, ISSUER, post, startHub, submission } from "./ingest-helpers.js";
 
 type Hub = Awaited<ReturnType<typeof startHub>>;
 let hub: Hub | undefined;
@@ -188,6 +188,93 @@ describe("ingest hub", () => {
     hub = await startHub();
     expect((await post(`${hub.url}/v1/other`, null, {})).status).toBe(404);
     expect((await fetch(`${hub.url}/v1/feedback`)).status).toBe(405);
+  });
+
+  it("renews install tokens with the same subject, and refuses what it should not renew", async () => {
+    hub = await startHub({ isRevoked: (claims) => claims.sub === "install:revoked" });
+    const enrol = await post(`${hub.url}/v1/enroll`, hub.projectKey, {});
+    const renewed = await post(`${hub.url}/v1/renew`, enrol.body.token, {});
+    expect(renewed).toMatchObject({ status: 200, body: { subject: enrol.body.subject, tier: "install" } });
+    expect(renewed.body.token).not.toBe(enrol.body.token);
+    expect((await post(`${hub.url}/v1/feedback`, renewed.body.token, submission())).status).toBe(201);
+
+    expect((await post(`${hub.url}/v1/renew`, hub.projectKey, {})).status).toBe(401);
+    expect((await post(`${hub.url}/v1/renew`, hub.issue("alice"), {})).status).toBe(401);
+    const revoked = issueToken({ issuer: ISSUER, project: "acme", tier: "install", subject: "install:revoked", ttlSeconds: 60 }, hub.signer).token;
+    expect((await post(`${hub.url}/v1/renew`, revoked, {})).status).toBe(403);
+    const old = issueToken({ issuer: ISSUER, project: "acme", tier: "install", ttlSeconds: 60, now: new Date(Date.now() - 3_600_000) }, hub.signer).token;
+    expect((await post(`${hub.url}/v1/renew`, old, {})).status).toBe(401);
+  });
+
+  it("publishes what it offers at .well-known", async () => {
+    hub = await startHub();
+    const plain = await (await fetch(`${hub.url}/.well-known/mcp-feedback`)).json();
+    expect(plain).toEqual({
+      issuer: ISSUER,
+      endpoints: { enroll: "/v1/enroll", feedback: "/v1/feedback", renew: "/v1/renew" },
+      signin: {},
+      install_token_ttl_seconds: 30 * 86400,
+      user_token_ttl_seconds: null,
+    });
+    await hub.close();
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: fakeGitHub().fetch } });
+    const withGitHub = await (await fetch(`${hub.url}/.well-known/mcp-feedback`)).json();
+    expect(withGitHub.signin).toEqual({ github: { start: "/v1/signin/github/start", poll: "/v1/signin/github/poll" } });
+    expect(withGitHub.user_token_ttl_seconds).toBe(180 * 86400);
+  });
+
+  it("signs a person in with GitHub and makes them the submitter for any project", async () => {
+    const github = fakeGitHub({ login: "octocat" });
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: github.fetch } });
+    const start = await post(`${hub.url}/v1/signin/github/start`, hub.projectKey, {});
+    expect(start).toMatchObject({ status: 200, body: { user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", handle: "device-1" } });
+    expect((await post(`${hub.url}/v1/signin/github/poll`, hub.projectKey, { handle: "device-1" })).status).toBe(202);
+    github.approve();
+    const done = await post(`${hub.url}/v1/signin/github/poll`, hub.projectKey, { handle: "device-1" });
+    expect(done).toMatchObject({ status: 200, body: { subject: "github:octocat", tier: "user" } });
+    const userToken = done.body.token;
+
+    // The sign-in is for the hub, not one project: it works with any project's key.
+    for (const name of ["utm", "notarize"]) {
+      const enrol = await post(`${hub.url}/v1/enroll`, hub.projectKeyFor(name), { user_token: userToken });
+      expect(enrol.body).toMatchObject({ subject: "github:octocat", tier: "issued" });
+      expect((await post(`${hub.url}/v1/feedback`, enrol.body.token, submission())).status).toBe(201);
+    }
+    expect((await hub.store.list({ limit: 10 })).items.map((item) => [item.server.name, item.identity.subject, item.identity.scopes[0]])).toEqual(
+      expect.arrayContaining([
+        ["utm", "github:octocat", "ingest:issued"],
+        ["notarize", "github:octocat", "ingest:issued"],
+      ]),
+    );
+    // A user token is only for enrolling and renewing.
+    expect((await post(`${hub.url}/v1/feedback`, userToken, submission())).status).toBe(401);
+    expect((await post(`${hub.url}/v1/renew`, userToken, {})).body).toMatchObject({ subject: "github:octocat", tier: "user" });
+    expect((await post(`${hub.url}/v1/enroll`, hub.projectKey, { user_token: "not.a.token" })).status).toBe(401);
+  });
+
+  it("refuses GitHub users outside the allow list, declined and expired sign-ins, and revoked accounts", async () => {
+    const github = fakeGitHub({ login: "stranger", orgs: ["elsewhere"] });
+    hub = await startHub({ github: { clientId: "Iv1.test", allowedOrgs: ["krishchow-org"], fetch: github.fetch } });
+    await post(`${hub.url}/v1/signin/github/start`, hub.projectKey, {});
+    github.approve();
+    const outsider = await post(`${hub.url}/v1/signin/github/poll`, hub.projectKey, { handle: "device-1" });
+    expect(outsider).toMatchObject({ status: 403, body: { error: { code: "not_allowed" } } });
+    expect(github.calls).toContain("/user/orgs");
+
+    github.deny();
+    expect((await post(`${hub.url}/v1/signin/github/poll`, hub.projectKey, { handle: "device-1" })).status).toBe(403);
+    github.expire();
+    expect((await post(`${hub.url}/v1/signin/github/poll`, hub.projectKey, { handle: "device-1" })).status).toBe(410);
+    await hub.close();
+
+    const approved = fakeGitHub({ login: "mallory" });
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: approved.fetch }, isRevoked: (claims) => claims.sub === "github:mallory" });
+    approved.approve();
+    expect((await post(`${hub.url}/v1/signin/github/poll`, hub.projectKey, { handle: "device-1" })).status).toBe(403);
+    await hub.close();
+
+    hub = await startHub();
+    expect((await post(`${hub.url}/v1/signin/github/start`, hub.projectKey, {})).status).toBe(501);
   });
 
   it("hides store failures behind a generic message and reports them to onError", async () => {

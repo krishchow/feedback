@@ -67,3 +67,41 @@ export const submission = (overrides: Record<string, unknown> = {}) => ({
   body: "Calling do_thing returned an error.",
   ...overrides,
 });
+
+/**
+ * Stands in for GitHub's device flow and API. The sign-in stays pending until `approve()` (or
+ * `deny()`); `login` and `orgs` are who signs in.
+ */
+export function fakeGitHub(options: { login?: string; orgs?: string[] } = {}) {
+  let state: "pending" | "approved" | "denied" | "expired" = "pending";
+  const calls: string[] = [];
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    calls.push(url.pathname);
+    if (url.pathname === "/login/device/code") {
+      state = "pending";
+      return json({ device_code: "device-1", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 5 });
+    }
+    if (url.pathname === "/login/oauth/access_token") {
+      if (state === "approved") return json({ access_token: "gho_test", token_type: "bearer", scope: "" });
+      return json({ error: state === "pending" ? "authorization_pending" : state === "denied" ? "access_denied" : "expired_token" });
+    }
+    if (url.pathname === "/user") return json({ login: options.login ?? "octocat", id: 1 });
+    if (url.pathname === "/user/orgs") return json((options.orgs ?? []).map((login) => ({ login })));
+    return json({ message: "Not Found" }, 404);
+  };
+  return {
+    fetch: fetchImpl,
+    calls,
+    approve: () => {
+      state = "approved";
+    },
+    deny: () => {
+      state = "denied";
+    },
+    expire: () => {
+      state = "expired";
+    },
+  };
+}

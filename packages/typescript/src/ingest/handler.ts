@@ -8,15 +8,17 @@ import { FeedbackInputError } from "../reader.js";
 import { buildRecord, DEFAULT_FEEDBACK_LIMITS, validateSubmission, type FeedbackLimits } from "../register.js";
 import type { FeedbackStore } from "../store.js";
 import type { FeedbackIdentity, FeedbackRecord } from "../types.js";
+import { GitHubError, pollDeviceFlow, signedInUser, startDeviceFlow, type GitHubSignInOptions } from "./github.js";
 import {
   INGEST_PATHS,
   ingestSubmissionSchema,
   MAX_INGEST_BODY_BYTES,
   MAX_QUEUE_AGE_DAYS,
+  type HubMetadata,
   type IngestErrorBody,
   type IngestSubmission,
 } from "./protocol.js";
-import { issueToken, isValidProjectName, TokenError, verifyToken, type Keyring, type TokenClaims, type TokenTier } from "./tokens.js";
+import { ANY_PROJECT, issueToken, isValidProjectName, TokenError, verifyToken, type Keyring, type TokenClaims, type TokenTier } from "./tokens.js";
 
 export interface IngestQuotas {
   /** Reports one installation may file in 24 hours. */
@@ -61,8 +63,13 @@ export interface IngestOptions {
   projects?: Record<string, IngestProject>;
   quotas?: Partial<IngestQuotas>;
   limits?: Partial<FeedbackLimits>;
-  /** How long an install token lasts. Default 30 days; installations enrol again when it runs out. */
+  /** How long an install token, and a signed-in person's per-project token, lasts. Default 30 days; installations renew them. */
   installTokenTtlSeconds?: number;
+  /**
+   * Let people sign in with GitHub, so their reports carry `github:<login>` instead of an anonymous
+   * installation id. Needs a GitHub OAuth app with device flow enabled, and a signing key.
+   */
+  github?: GitHubSignInOptions;
   /** Return true to refuse a token, e.g. by its `jti` or its `sub`. Checked on every request. */
   isRevoked?: (claims: TokenClaims) => boolean | Promise<boolean>;
   /**
@@ -177,6 +184,7 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
   const basePath = (options.basePath ?? "").replace(/\/+$/, "");
   const limits = { ...DEFAULT_FEEDBACK_LIMITS, ...options.limits };
   const installTtl = options.installTokenTtlSeconds ?? 30 * 24 * 60 * 60;
+  const userTtl = options.github?.userTokenTtlSeconds ?? 180 * 24 * 60 * 60;
   const enrollLimiter = windowLimiter(60 * 60 * 1000);
   const quotasFor = (project: string): IngestQuotas => ({ ...DEFAULT_INGEST_QUOTAS, ...options.quotas, ...options.projects?.[project]?.quotas });
   /** The store a project's feedback goes to, or undefined when this hub does not take that project. */
@@ -201,25 +209,145 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
     return { token, claims, store };
   };
 
+  const requireSigner = () => {
+    const signer = options.keyring.signer;
+    if (!signer) throw new HttpError(501, "not_enrolling", "This hub does not issue tokens; ask the maintainer for one.");
+    return signer;
+  };
+
+  const tokenResponse = (status: number, issued: { token: string; claims: TokenClaims }) =>
+    json(status, {
+      token: issued.token,
+      subject: issued.claims.sub,
+      tier: issued.claims.tier,
+      expires_at: new Date(issued.claims.exp! * 1000).toISOString(),
+    });
+
+  const limitAddress = (key: string, project: string) => {
+    if (!enrollLimiter(key, quotasFor(project).enrollPerAddressPerHour)) {
+      throw new HttpError(429, "rate_limited", "Too many requests from this address. Try again later.", { "retry-after": "3600" });
+    }
+  };
+
+  /** A JSON object body, or `{}` when there is none. */
+  const readObject = async (request: Request): Promise<Record<string, unknown>> => {
+    const text = await readBody(request, 8 * 1024);
+    if (!text.trim()) return {};
+    try {
+      const value = JSON.parse(text) as unknown;
+      if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+    } catch {
+      // Falls through.
+    }
+    throw new HttpError(400, "invalid_request", "The body must be a JSON object.");
+  };
+
+  /** A signed-in person's `user` token from a request body, verified and not revoked. */
+  const userClaims = async (token: unknown): Promise<TokenClaims> => {
+    if (typeof token !== "string") throw new HttpError(400, "invalid_request", "user_token must be a string.");
+    let claims: TokenClaims;
+    try {
+      claims = verifyToken(token, options.keyring, { issuer: options.issuer, tiers: ["user"] });
+    } catch (error) {
+      if (error instanceof TokenError) throw new HttpError(401, "unauthorized", `The sign-in is no longer valid: ${error.message}`);
+      throw error;
+    }
+    if (await options.isRevoked?.(claims)) throw new HttpError(403, "revoked", "This sign-in has been revoked.");
+    return claims;
+  };
+
+  // With a user_token, the installation becomes that person for this project; without, it is anonymous.
   const enroll = async (request: Request, info: IngestRequestInfo): Promise<Response> => {
     const { claims } = await authenticate(request, ["project"]);
-    const signer = options.keyring.signer;
-    if (!signer) throw new HttpError(501, "not_enrolling", "This hub does not enrol installations; ask the maintainer for a token.");
-    const clientAddress = info.clientAddress ?? null;
-    const quotas = quotasFor(claims.prj);
-    if (clientAddress && !enrollLimiter(clientAddress, quotas.enrollPerAddressPerHour)) {
-      throw new HttpError(429, "rate_limited", "Too many enrolments from this address. Try again later.", { "retry-after": "3600" });
+    const signer = requireSigner();
+    const body = await readObject(request);
+    if (body.user_token !== undefined) {
+      const user = await userClaims(body.user_token);
+      return tokenResponse(201, issueToken({ issuer: options.issuer, project: claims.prj, tier: "issued", subject: user.sub, ttlSeconds: installTtl }, signer));
     }
+    const clientAddress = info.clientAddress ?? null;
+    if (clientAddress) limitAddress(clientAddress, claims.prj);
     if (options.allowEnrollment && !(await options.allowEnrollment({ project: claims.prj, clientAddress }))) {
       throw new HttpError(429, "rate_limited", "Enrolment is not available right now. Try again later.", { "retry-after": "3600" });
     }
-    const issued = issueToken({ issuer: options.issuer, project: claims.prj, tier: "install", ttlSeconds: installTtl }, signer);
-    return json(201, {
-      token: issued.token,
-      subject: issued.claims.sub,
-      expires_at: new Date(issued.claims.exp! * 1000).toISOString(),
+    return tokenResponse(201, issueToken({ issuer: options.issuer, project: claims.prj, tier: "install", ttlSeconds: installTtl }, signer));
+  };
+
+  // A fresh copy of a token the hub issued: same subject, project and tier, new expiry. Installations
+  // call it as they start, so a machine in use never runs out.
+  const renew = async (request: Request): Promise<Response> => {
+    const token = bearer(request);
+    let claims: TokenClaims;
+    try {
+      claims = verifyToken(token, options.keyring, { issuer: options.issuer, tiers: ["install", "user"] });
+    } catch (error) {
+      if (error instanceof TokenError) throw new HttpError(401, "unauthorized", error.message);
+      throw error;
+    }
+    if (await options.isRevoked?.(claims)) throw new HttpError(403, "revoked", "This token has been revoked.");
+    if (claims.prj !== ANY_PROJECT && !storeFor(claims.prj)) {
+      throw new HttpError(404, "unknown_project", `This hub does not collect feedback for ${claims.prj}.`);
+    }
+    if (claims.tier === "user" && !options.github) throw new HttpError(501, "not_signing_in", "This hub no longer offers sign-in.");
+    const ttl = claims.tier === "user" ? userTtl : installTtl;
+    return tokenResponse(200, issueToken({ issuer: options.issuer, project: claims.prj, tier: claims.tier, subject: claims.sub, ttlSeconds: ttl }, requireSigner()));
+  };
+
+  const github = () => {
+    if (!options.github) throw new HttpError(501, "not_signing_in", "This hub does not offer GitHub sign-in.");
+    return options.github;
+  };
+
+  const githubFailure = (error: unknown): never => {
+    if (error instanceof GitHubError) throw new HttpError(502, "github", error.message);
+    throw error;
+  };
+
+  // The installation gets a code for its user to enter at GitHub, and a handle to poll with.
+  const githubStart = async (request: Request, info: IngestRequestInfo): Promise<Response> => {
+    const { claims } = await authenticate(request, ["project"]);
+    const config = github();
+    requireSigner();
+    if (info.clientAddress) limitAddress(`signin:${info.clientAddress}`, claims.prj);
+    const code = await startDeviceFlow(config).catch(githubFailure);
+    return json(200, {
+      verification_uri: code.verification_uri,
+      user_code: code.user_code,
+      expires_in: code.expires_in,
+      interval: code.interval,
+      handle: code.device_code,
     });
   };
+
+  const githubPoll = async (request: Request): Promise<Response> => {
+    await authenticate(request, ["project"]);
+    const config = github();
+    const signer = requireSigner();
+    const { handle } = await readObject(request);
+    if (typeof handle !== "string" || !handle || handle.length > 200) throw new HttpError(400, "invalid_request", "handle must be the value start returned.");
+    const result = await pollDeviceFlow(config, handle).catch(githubFailure);
+    if (result.status === "pending") return json(202, { status: "pending", ...(result.interval ? { interval: result.interval } : {}) });
+    if (result.status === "denied") throw new HttpError(403, "signin_denied", "The sign-in was declined at GitHub.");
+    if (result.status === "expired") throw new HttpError(410, "signin_expired", "The sign-in code expired before it was entered. Start again.");
+    let login: string;
+    try {
+      login = await signedInUser(config, result.accessToken);
+    } catch (error) {
+      if (error instanceof GitHubError && /not (one|a member)/.test(error.message)) throw new HttpError(403, "not_allowed", error.message);
+      return githubFailure(error);
+    }
+    const issued = issueToken({ issuer: options.issuer, project: ANY_PROJECT, tier: "user", subject: `github:${login}`, ttlSeconds: userTtl }, signer);
+    if (await options.isRevoked?.(issued.claims)) throw new HttpError(403, "revoked", "This GitHub account has been revoked on this hub.");
+    return tokenResponse(200, issued);
+  };
+
+  const metadata = (): HubMetadata => ({
+    issuer: options.issuer,
+    endpoints: { enroll: INGEST_PATHS.enroll, feedback: INGEST_PATHS.feedback, renew: INGEST_PATHS.renew },
+    signin: options.github && options.keyring.signer ? { github: { start: INGEST_PATHS.githubStart, poll: INGEST_PATHS.githubPoll } } : {},
+    install_token_ttl_seconds: installTtl,
+    user_token_ttl_seconds: options.github ? userTtl : null,
+  });
 
   // Counted within the project, so projects sharing a store do not use up each other's quotas.
   const checkQuota = async (store: FeedbackStore, claims: TokenClaims, now: number) => {
@@ -314,8 +442,18 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
   return async (request, info = {}) => {
     try {
       const path = new URL(request.url).pathname.replace(/\/+$/, "");
-      const route =
-        path === basePath + INGEST_PATHS.enroll ? enroll : path === basePath + INGEST_PATHS.feedback ? feedback : undefined;
+      if (path === basePath + INGEST_PATHS.wellKnown) {
+        if (request.method !== "GET") throw new HttpError(405, "method_not_allowed", "Use GET.", { allow: "GET" });
+        return json(200, metadata(), { "cache-control": "public, max-age=300" });
+      }
+      const routes: Record<string, (request: Request, info: IngestRequestInfo) => Promise<Response>> = {
+        [basePath + INGEST_PATHS.enroll]: enroll,
+        [basePath + INGEST_PATHS.feedback]: feedback,
+        [basePath + INGEST_PATHS.renew]: renew,
+        [basePath + INGEST_PATHS.githubStart]: githubStart,
+        [basePath + INGEST_PATHS.githubPoll]: githubPoll,
+      };
+      const route = Object.hasOwn(routes, path) ? routes[path] : undefined;
       if (!route) throw new HttpError(404, "not_found", "No such endpoint.");
       if (request.method !== "POST") throw new HttpError(405, "method_not_allowed", "Use POST.", { allow: "POST" });
       return await route(request, info);

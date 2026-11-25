@@ -4,7 +4,25 @@ import { z } from "zod";
 import { submitFeedbackShapeFor } from "../tools.js";
 import type { FeedbackRecord } from "../types.js";
 
-export const INGEST_PATHS = { enroll: "/v1/enroll", feedback: "/v1/feedback" } as const;
+export const INGEST_PATHS = {
+  enroll: "/v1/enroll",
+  feedback: "/v1/feedback",
+  renew: "/v1/renew",
+  githubStart: "/v1/signin/github/start",
+  githubPoll: "/v1/signin/github/poll",
+  wellKnown: "/.well-known/mcp-feedback",
+} as const;
+
+/** What a hub publishes at `<base>/.well-known/mcp-feedback`, so a client can find out what it offers. */
+export interface HubMetadata {
+  issuer: string;
+  /** Paths relative to the hub's base URL. */
+  endpoints: { enroll: string; feedback: string; renew: string };
+  /** Ways to sign in, with their endpoints. Empty when the hub only takes anonymous installations and issued tokens. */
+  signin: { github?: { start: string; poll: string } };
+  install_token_ttl_seconds: number;
+  user_token_ttl_seconds: number | null;
+}
 
 /** The most a hub reads of a request body. */
 export const MAX_INGEST_BODY_BYTES = 64 * 1024;
@@ -55,6 +73,19 @@ export function toIngestSubmission(record: FeedbackRecord): IngestSubmission {
 /** A hub's error body: `{ error: { code, message } }`. The message is written to be shown to an agent. */
 export interface IngestErrorBody {
   error: { code: string; message: string };
+}
+
+/** Reads a token's claims without verifying them. Only for an installation's own bookkeeping (when to renew). */
+export function unverifiedClaimsOf(token: string): { tier: string; iat: number; exp?: number; sub: string } | null {
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (typeof claims.tier !== "string" || typeof claims.iat !== "number" || typeof claims.sub !== "string") return null;
+    return { tier: claims.tier, iat: claims.iat, sub: claims.sub, ...(typeof claims.exp === "number" ? { exp: claims.exp } : {}) };
+  } catch {
+    return null;
+  }
 }
 
 /** Reads the project a token names without verifying it. Only for choosing where to keep local state. */

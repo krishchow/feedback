@@ -41,6 +41,9 @@ Options (serve reads each from the environment variable shown when the flag is n
                     a line of this file (read at start)
                     Reader endpoint at /mcp                 MCP_FEEDBACK_READER_TOKEN (32+ characters)
                     HMAC key for token fingerprints        MCP_FEEDBACK_FINGERPRINT_KEY
+                    GitHub sign-in: OAuth app client id    MCP_FEEDBACK_GITHUB_CLIENT_ID (device flow enabled)
+                    ... only members of these orgs         MCP_FEEDBACK_GITHUB_ORGS (comma-separated)
+                    ... only these GitHub logins           MCP_FEEDBACK_GITHUB_USERS (comma-separated)
   --kid <id>        With keygen: the key's id (default: generated)
 
 serve also answers GET /healthz, for container health checks.
@@ -90,6 +93,8 @@ function project(values: Record<string, unknown>): string {
 }
 
 const { version } = createRequire(import.meta.url)("../../package.json") as { version: string };
+
+const list = (value: string | undefined) => (value ?? "").split(",").map((item) => item.trim()).filter(Boolean);
 
 const digest = (value: string) => createHash("sha256").update(value).digest();
 const sameSecret = (given: string, expected: string) => timingSafeEqual(digest(given), digest(expected));
@@ -237,6 +242,15 @@ export async function runIngestCli(argv: string[], io: IngestIo): Promise<number
         ...(listed.length ? { projects: Object.fromEntries(listed.map((name): [string, IngestProject] => [name, {}])) } : {}),
         isRevoked: (claims) => revoked.has(claims.jti) || revoked.has(claims.sub),
         tokenFingerprintKey: env.MCP_FEEDBACK_FINGERPRINT_KEY,
+        ...(env.MCP_FEEDBACK_GITHUB_CLIENT_ID
+          ? {
+              github: {
+                clientId: env.MCP_FEEDBACK_GITHUB_CLIENT_ID,
+                allowedOrgs: list(env.MCP_FEEDBACK_GITHUB_ORGS),
+                allowedUsers: list(env.MCP_FEEDBACK_GITHUB_USERS),
+              },
+            }
+          : {}),
         onError: logError,
       });
       const ingest = toNodeListener(handler, { trustProxy });
@@ -254,6 +268,7 @@ export async function runIngestCli(argv: string[], io: IngestIo): Promise<number
       const which = listed.length ? listed.join(", ") : "every project the key signed";
       io.err(`mcp-feedback ingest: collecting feedback for ${which} on http://${host}:${bound} (POST /v1/enroll, /v1/feedback)`);
       io.err(reader ? `mcp-feedback ingest: reader tools for all projects at http://${host}:${bound}/mcp` : "mcp-feedback ingest: no reader endpoint (MCP_FEEDBACK_READER_TOKEN is not set)");
+      io.err(env.MCP_FEEDBACK_GITHUB_CLIENT_ID ? "mcp-feedback ingest: GitHub sign-in on" : "mcp-feedback ingest: GitHub sign-in off (MCP_FEEDBACK_GITHUB_CLIENT_ID is not set)");
       await new Promise<void>((resolve) => {
         process.once("SIGINT", resolve);
         process.once("SIGTERM", resolve);

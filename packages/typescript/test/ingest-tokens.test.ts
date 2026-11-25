@@ -74,6 +74,14 @@ describe("ingest tokens", () => {
     expect(verifyToken(project, keyring, { issuer: ISSUER, tiers: ["project"] }).tier).toBe("project");
   });
 
+  it("keeps * for user tokens only", () => {
+    const user = issueToken({ issuer: ISSUER, project: "*", tier: "user", subject: "github:octocat", ttlSeconds: 60 }, signer);
+    expect(verifyToken(user.token, keyring, { issuer: ISSUER, tiers: ["user"] }).prj).toBe("*");
+    expect(() => issueToken({ issuer: ISSUER, project: "*", tier: "install", ttlSeconds: 60 }, signer)).toThrow(/only for a user token/);
+    expect(() => issueToken({ issuer: ISSUER, project: "acme", tier: "user", subject: "github:x", ttlSeconds: 60 }, signer)).toThrow(/only for a user token/);
+    expect(() => issueToken({ issuer: ISSUER, project: "*", tier: "user", ttlSeconds: 60 }, signer)).toThrow(/subject/);
+  });
+
   it("refuses to sign what it would not accept", () => {
     expect(() => signToken({ iss: ISSUER, prj: "acme", tier: "install", sub: "install:x", iat: 0, jti: "j" }, signer)).toThrow(/expiry/);
     expect(() => issueToken({ issuer: ISSUER, project: "Bad Name", tier: "project" }, signer)).toThrow(/Project names/);

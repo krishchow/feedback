@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildRecord, FeedbackDeliveryError, registerFeedback, registerFeedbackReader, type FeedbackRecord } from "../src/index.js";
 import { feedbackDisabled, remoteStore, type RemoteStoreOptions } from "../src/remote.js";
 import { call, connect } from "./helpers.js";
-import { startHub } from "./ingest-helpers.js";
+import { fakeGitHub, startHub } from "./ingest-helpers.js";
 
 type Hub = Awaited<ReturnType<typeof startHub>>;
 let hub: Hub | undefined;
@@ -171,6 +171,110 @@ describe("remoteStore", () => {
     expect(feedbackDisabled({ MCP_FEEDBACK_DISABLED: "1" })).toBe(true);
     expect(feedbackDisabled({ MCP_FEEDBACK_DISABLED: "TRUE" })).toBe(true);
     expect(feedbackDisabled({})).toBe(false);
+  });
+});
+
+async function until(check: () => boolean | Promise<boolean>, ms = 3000) {
+  const deadline = Date.now() + ms;
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error("timed out waiting");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+describe("start()", () => {
+  it("does not contact the hub on a machine that has never filed feedback", async () => {
+    hub = await startHub();
+    const { calls, fetch } = counting();
+    const result = await remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: stateDir(), identityDir: stateDir(), fetch }).start();
+    expect(result).toEqual({ delivered: 0, dropped: 0, remaining: 0, renewed: [] });
+    expect(calls).toEqual([]);
+  });
+
+  it("renews the installation's token as the server starts, keeping its identity", async () => {
+    hub = await startHub();
+    const dir = stateDir();
+    const first = record();
+    await remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: dir }).insert(first);
+
+    // Fresh: nothing to do.
+    const { calls, fetch } = counting();
+    expect((await remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: dir, fetch }).start()).renewed).toEqual([]);
+    expect(calls).toEqual([]);
+
+    // Old enough: renewed, same installation.
+    const restarted = remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: dir, renewAfterSeconds: 0 });
+    expect((await restarted.start()).renewed).toEqual(["project"]);
+    const second = record();
+    await restarted.insert(second);
+    expect((await hub.store.get(second.id))!.identity.subject).toBe((await hub.store.get(first.id))!.identity.subject);
+  });
+
+  it("forgets a token the hub no longer accepts, and enrols again on the next report", async () => {
+    hub = await startHub({ isRevoked: (claims) => claims.tier === "install" && revokeAll });
+    let revokeAll = false;
+    const dir = stateDir();
+    await remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: dir }).insert(record());
+    revokeAll = true;
+    const store2 = remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: dir, renewAfterSeconds: 0 });
+    expect((await store2.start()).renewed).toEqual([]);
+    expect(() => statSync(join(dir, "token.json"))).toThrow();
+  });
+});
+
+describe("signing in with GitHub", () => {
+  it("asks once per machine, sends the waiting report as that person, and shares the sign-in across servers", async () => {
+    const github = fakeGitHub({ login: "octocat" });
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: github.fetch } });
+    const identityDir = stateDir();
+    const utmDir = stateDir();
+    const utm = remoteStore({ endpoint: hub.url, projectKey: hub.projectKeyFor("utm"), stateDir: utmDir, identityDir, signIn: "github", signInPollMs: 10 });
+
+    const waiting = record();
+    const receipt = await utm.insert(waiting);
+    expect(receipt.delivery).toBe("queued");
+    expect(receipt.note).toContain("open https://github.com/login/device and enter the code ABCD-1234");
+    expect(receipt.note).toContain(join(utmDir, "queue", `${waiting.id}.json`));
+    // A second report while the sign-in is pending reuses the same code.
+    expect((await utm.insert(record())).note).toContain("ABCD-1234");
+    expect(github.calls.filter((path) => path === "/login/device/code")).toHaveLength(1);
+
+    github.approve();
+    await until(async () => (await hub!.store.stats({})).total === 2);
+    expect((await hub.store.get(waiting.id))!.identity).toMatchObject({ subject: "github:octocat", scopes: ["ingest:issued"] });
+    expect(statSync(join(identityDir, "user.json")).mode & 0o777).toBe(0o600);
+
+    // Another server on the same machine: no second sign-in.
+    const notarize = remoteStore({ endpoint: hub.url, projectKey: hub.projectKeyFor("notarize"), stateDir: stateDir(), identityDir, signIn: "github" });
+    const direct = record();
+    expect(await notarize.insert(direct)).toEqual({ delivery: "stored" });
+    expect((await hub.store.get(direct.id))!).toMatchObject({ server: { name: "notarize" }, identity: { subject: "github:octocat" } });
+    expect(github.calls.filter((path) => path === "/login/device/code")).toHaveLength(1);
+
+    // Starting up renews both the sign-in and the server's own token.
+    const restarted = remoteStore({ endpoint: hub.url, projectKey: hub.projectKeyFor("utm"), stateDir: utmDir, identityDir, signIn: "github", renewAfterSeconds: 0 });
+    expect((await restarted.start()).renewed).toEqual(["user", "project"]);
+  });
+
+  it("keeps the report when the sign-in is declined, and asks again with the next one", async () => {
+    const github = fakeGitHub();
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: github.fetch } });
+    const errors: unknown[] = [];
+    const dir = stateDir();
+    const sink = remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: dir, identityDir: stateDir(), signIn: "github", signInPollMs: 10, onError: (error) => errors.push(error) });
+    await sink.insert(record());
+    github.deny();
+    await until(() => errors.length > 0);
+    expect(String(errors[0])).toMatch(/declined/);
+    expect(readdirSync(join(dir, "queue"))).toHaveLength(1);
+    expect((await sink.insert(record())).note).toContain("ABCD-1234");
+    expect(github.calls.filter((path) => path === "/login/device/code")).toHaveLength(2);
+  });
+
+  it("says so when the hub does not offer GitHub sign-in", async () => {
+    hub = await startHub();
+    const sink = remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, stateDir: stateDir(), identityDir: stateDir(), signIn: "github" });
+    await expect(sink.insert(record())).rejects.toThrow(/could not start a sign-in: This hub does not offer GitHub sign-in/);
   });
 });
 

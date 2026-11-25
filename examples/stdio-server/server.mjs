@@ -36,8 +36,9 @@ if (!feedbackDisabled()) {
     destination: "the example-stdio maintainers",
     attachContext: () => ({ node: process.version, platform: process.platform }),
   });
-  // Reports that could not be sent last time go now, without holding up startup.
-  void store.flush();
+  // Renews this machine's token if it is a day old, and sends reports that could not go last time,
+  // without holding up startup. It contacts the hub only if this machine has used feedback before.
+  void store.start();
 }
 
 await server.connect(new StdioServerTransport());
