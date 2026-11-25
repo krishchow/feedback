@@ -96,7 +96,7 @@ For each server you want feedback from, issue a project key. The hub needs no ch
 npx -y mcp-feedback ingest issue-key --project my-server --key hub-key.json --issuer https://feedback.example.com
 ```
 
-The project key is public by design: it goes in the server's source and can only enrol an installation. Then wire the server with `remoteStore`, or ask your agent to "add agent feedback to this MCP server" with the `add-feedback-to-mcp-server` skill (`npx -y mcp-feedback setup` installs it), which does this for you.
+The project key is public by design: it goes in the server's source and can only enrol an installation. Then wire the server with `remoteStore`, or ask your agent to "add agent feedback to this MCP server" with the `add-feedback-to-mcp-server` skill (`npx -y mcp-feedback@latest install --local` installs it), which does this for you.
 
 Reports are anonymous by default: each installation has its own `install:…` subject. To have your own and your team's reports carry who sent them, turn on GitHub sign-in (next section) and pass `signIn: "github"` to `remoteStore` in those servers. For a one-off without GitHub, you can still issue a token by hand and deliver it privately:
 
