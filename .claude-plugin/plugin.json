@@ -1,5 +1,6 @@
 {
   "name": "mcp-feedback",
+  "version": "0.6.0",
   "description": "Agent feedback for MCP servers: skills for adding the mcp-feedback library to a server and updating the server's own skills to use it, for recording a project's own facts about where its feedback is read, and for reading, working through and closing out what was collected, over the mcp-feedback CLI or MCP reader tools.",
   "author": {
     "name": "krishchow"
@@ -7,5 +8,10 @@
   "homepage": "https://github.com/krishchow/feedback",
   "repository": "https://github.com/krishchow/feedback",
   "license": "MIT",
-  "keywords": ["mcp", "feedback", "agents", "skills"]
+  "keywords": [
+    "mcp",
+    "feedback",
+    "agents",
+    "skills"
+  ]
 }

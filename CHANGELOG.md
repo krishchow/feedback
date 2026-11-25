@@ -4,6 +4,12 @@ Versions are those of the `mcp-feedback` npm package. The skills are not version
 
 ## Unreleased
 
+- The skills are installed by [agentdist](https://www.npmjs.com/package/agentdist): `mcp-feedback install` puts them into this repository (`--local`) or into every project for you (`--user`), for Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI and the other harnesses agentdist supports. `uninstall` removes what it wrote and `status` shows where they are. Its record of what it wrote is `.agentdist/mcp-feedback.json`.
+- `mcp-feedback setup` is gone; it now says to run `install --local`. A project set up with it has copies `install` did not write, so it reports them as conflicts: delete the three skill folders and `.mcp-feedback.json` from `.agents/skills` or `.claude/skills` first, or pass `--force`, which backs them up before replacing them.
+- The Claude Code and Codex plugin manifests are generated from `agentdist.json`. The Claude Code plugin states a version again, so installed copies update when a release is cut rather than on every commit.
+
+## 0.6.0 (2026-11-24)
+
 - `mcp-feedback setup` copies the skills, now shipped in the npm package, into a project's `.agents/skills` or `.claude/skills`. A later run updates files it wrote and keeps ones edited in the project unless `--force` is given.
 - New `set-up-feedback-reading` skill: works out a project's own facts (reader endpoint, credential, deployment, reference ids, release rule) from its code and writes them down as a local reference for the sessions that read its feedback.
 - `feedbackInstructions`, `feedbackConfirmInstructions` and the `submit_feedback` description now tell agents to give only ids they were given and to submit a report once, not again after an unclear result.

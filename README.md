@@ -7,10 +7,10 @@ Drop-in feedback for MCP servers. Add one call to a server built on the official
 In the repository of your MCP server:
 
 ```sh
-npx -y mcp-feedback@latest setup
+npx -y mcp-feedback@latest install --local
 ```
 
-This copies three agent skills into the project's skills directory (`.agents/skills` or `.claude/skills`, whichever it has). Then ask your agent, in order:
+This asks which agent harnesses you use (Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI and others) and writes three agent skills into each one's skills directory in the repository. Then ask your agent, in order:
 
 | Ask | Skill | What happens |
 | --- | --- | --- |
@@ -18,9 +18,9 @@ This copies three agent skills into the project's skills directory (`.agents/ski
 | "Set this project up for reading its feedback" | `set-up-feedback-reading` | Once per project: finds the reader endpoint, credential, deployment, reference ids and release rule in the code and writes them down, so later sessions do not rediscover them. |
 | "Summarize the feedback agents have filed" | `read-feedback` | Reads the queue, groups it into problems worth fixing, and, when asked, works items through to closed. |
 
-Run `setup` again after upgrading: files you have not touched are updated, files you edited are kept unless you pass `--force`. `--dir <path>` installs somewhere else and `--dry-run` shows what would be written.
+Run `install` again after upgrading to update them. It only replaces or removes files it wrote, and records them in `.agentdist/mcp-feedback.json`; commit that along with the skills. A file you edited is backed up before it is replaced. `--dry-run` shows what would change, `uninstall` takes the skills back out, and `status` shows where they are. The installer is [agentdist](https://www.npmjs.com/package/agentdist).
 
-To have the skills in your own sessions in every project instead, install them as a plugin. Claude Code: `/plugin install mcp-feedback --marketplace krishchow/feedback`. Codex reads `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` from this repo.
+To have the skills in your own sessions in every project instead, run `install --user`, or install them as a plugin, which your harness keeps up to date. Claude Code: `/plugin install mcp-feedback --marketplace krishchow/feedback`. Codex reads `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` from this repo.
 
 ## The feedback loop
 
@@ -52,7 +52,7 @@ The [package README](packages/typescript/README.md) is the reference: options, i
 ## In this repository
 
 - [`packages/typescript/`](packages/typescript/) is the implementation for `@modelcontextprotocol/sdk`, published on npm as [`mcp-feedback`](https://www.npmjs.com/package/mcp-feedback).
-- [`skills/`](skills/) holds the three skills above.
+- [`skills/`](skills/) holds the three skills above, and [`agentdist.json`](agentdist.json) declares them for the installer. The Claude Code and Codex plugin manifests are generated from it.
 - [`spec/`](spec/SPEC.md) is the language-neutral contract: record schema, tool definitions, store contract, conformance vectors, SQL layout. Implement it to support another language.
 - [`examples/express-server/`](examples/express-server/) is a runnable stateless HTTP server with both endpoints.
 - [`CHANGELOG.md`](CHANGELOG.md) lists what changed in each release.
@@ -65,6 +65,7 @@ pnpm test        # unit, end-to-end and store conformance (SQLite, Postgres via 
 docker compose up -d --wait && MCP_FEEDBACK_TEST_POSTGRES_URL=postgres://feedback:feedback@127.0.0.1:54329/feedback pnpm test   # also against a real Postgres
 pnpm typecheck
 pnpm gen:spec    # regenerate spec/tools.json, store-cases.json and sql/ after changing them in code
+pnpm gen:plugins # regenerate the plugin manifests after changing agentdist.json or adding a skill
 pnpm build && pnpm --filter mcp-feedback-example-express smoke   # real HTTP round trip
 ```
 
@@ -74,7 +75,7 @@ Try the CLI from a local build, exactly as `npx` would run the published package
 pnpm build && npx --package ./packages/typescript mcp-feedback stats --db ./feedback.db
 ```
 
-Release from a clean, up-to-date `main`. This bumps the version, runs the checks, publishes to npm, then commits the bump, tags `v<version>` and pushes. If the publish fails, nothing is committed or pushed. Leave out the bump to publish the version already in `package.json`; add `--dry-run` to try it without publishing.
+Release from a clean, up-to-date `main`. This bumps the version (in `agentdist.json` and the plugin manifests too), runs the checks, publishes to npm, then commits the bump, tags `v<version>` and pushes. If the publish fails, nothing is committed or pushed. Leave out the bump to publish the version already in `package.json`; add `--dry-run` to try it without publishing.
 
 ```sh
 pnpm release patch --otp=123456    # or minor, major, x.y.z
