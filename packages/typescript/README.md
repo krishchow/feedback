@@ -8,13 +8,13 @@ npm install mcp-feedback
 
 The language-neutral spec (record schema, tool definitions, store contract, SQL layout) lives in the [repository](https://github.com/krishchow/feedback).
 
-The package also carries agent skills for adding feedback to a server, recording a project's own facts about where its feedback is read, and reading and closing it out. Copy them into a project's skills directory (`.agents/skills` or `.claude/skills`, whichever it has) with:
+The package also carries agent skills for adding feedback to a server, recording a project's own facts about where its feedback is read, and reading and closing it out. Install them into a repository's agent harnesses (Claude Code, Codex, Cursor and others) with:
 
 ```sh
-npx -y mcp-feedback@latest setup
+npx -y mcp-feedback@latest install --local    # or --user, for every project
 ```
 
-Run it again after upgrading; files you edited are kept unless you pass `--force`.
+Run it again after upgrading. It only replaces or removes files it wrote, and backs up any you edited first; `uninstall` takes them back out and `status` shows where they are.
 
 ## Use
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Reader CLI: the same operations as the MCP reader tools, either straight
-// against the store or through a server's reader endpoint (--mcp). Also `setup`,
-// which copies the agent skills into a project.
+// against the store or through a server's reader endpoint (--mcp). Also `install`
+// and its siblings, which put the agent skills into a project's or the user's harnesses.
 
 import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -35,8 +35,10 @@ Commands:
   reopen <id...>        Set status back to new
   serve                 Serve the reader tools as a stdio MCP server, for agent sessions
                         (stdout carries the protocol; messages go to stderr)
-  setup                 Copy the agent skills into this project's skills directory
-                        (.agents/skills or .claude/skills, whichever it has); needs no source
+  install               Install the agent skills into this project (--local) or for you in
+                        every project (--user); asks which harnesses. Run install --help.
+  uninstall             Remove what install wrote
+  status                Where the skills are installed
 
 Source (one is required):
   --mcp <url>           A server's reader endpoint (or MCP_FEEDBACK_URL). Sends
@@ -58,9 +60,6 @@ Other:
   --clear-note          Remove the triage note
   --dismiss             With close: mark dismissed instead of resolved
   --read-only           With serve: leave out update_feedback_triage
-  --dir <path>          With setup: install into this directory instead
-  --force               With setup: replace skill files that were changed in the project
-  --dry-run             With setup: report what would be written
   --by <name>           Recorded as triaged_by (default: your username; with --mcp
                         the server records the credential's identity instead)
   --text                Human-readable output instead of JSON
@@ -73,8 +72,8 @@ export interface CliIo {
   stdin?: Readable;
   stdout?: Writable;
   env: Record<string, string | undefined>;
-  /** For setup: the directory the project is looked for from; defaults to the process's own. */
-  cwd?: string;
+  /** Test seam for install and its siblings: the home and repository they write to. */
+  installDirs?: { home: string; projectRoot: string };
   /** Test seam: supply the store instead of opening one from flags. */
   openStore?: () => Promise<FeedbackStore>;
 }
@@ -180,10 +179,23 @@ async function serve(reader: FeedbackReaderClient, values: Record<string, unknow
   return 0;
 }
 
+/** Handed to agentdist, which installs the agent skills into harnesses. */
+const INSTALL_COMMANDS = ["install", "uninstall", "status", "harnesses"];
+
 /** Runs the CLI and resolves the process exit code. */
 export async function runCli(argv: string[], io: CliIo): Promise<number> {
   let reader: FeedbackReaderClient | undefined;
   try {
+    // agentdist parses these itself, with flags of its own.
+    if (INSTALL_COMMANDS.includes(argv[0] ?? "")) {
+      const { installCli } = await import("./install.js");
+      return await installCli(argv, io);
+    }
+    if (argv[0] === "setup") {
+      throw new FeedbackInputError(
+        "setup was replaced by install: npx -y mcp-feedback@latest install --local, or --user for every project.",
+      );
+    }
     let parsed;
     try {
       parsed = parseArgs({
@@ -212,9 +224,6 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
           by: { type: "string" },
           text: { type: "boolean" },
           "read-only": { type: "boolean" },
-          dir: { type: "string" },
-          force: { type: "boolean" },
-          "dry-run": { type: "boolean" },
           help: { type: "boolean", short: "h" },
         },
       });
@@ -229,21 +238,6 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
     }
 
     if (values["read-only"] && command !== "serve") throw new FeedbackInputError("--read-only only applies to serve.");
-    if (command !== "setup" && (values.dir !== undefined || values.force || values["dry-run"])) {
-      throw new FeedbackInputError("--dir, --force and --dry-run only apply to setup.");
-    }
-    if (command === "setup") {
-      if (ids.length) throw new FeedbackInputError("setup takes no arguments; use --dir <path> to choose where.");
-      const { setupSkills } = await import("./setup.js");
-      return setupSkills({
-        cwd: io.cwd ?? process.cwd(),
-        dir: values.dir,
-        force: values.force,
-        dryRun: values["dry-run"],
-        version,
-        out: io.out,
-      });
-    }
     const status = oneOf("status", values.status, FEEDBACK_STATUSES);
     const filter: FeedbackFilter = normalizeFilter({
       kind: oneOf("kind", values.kind, FEEDBACK_KINDS),

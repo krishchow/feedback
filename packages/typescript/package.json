@@ -29,6 +29,7 @@
   "files": [
     "dist",
     "skills",
+    "agentdist.json",
     "README.md",
     "LICENSE"
   ],
@@ -64,8 +65,8 @@
     "test": "vitest run",
     "gen:spec": "UPDATE_SPEC=1 vitest run test/spec.test.ts",
     "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build",
-    "prepack": "node -e \"const fs=require('node:fs');fs.rmSync('skills',{recursive:true,force:true});fs.cpSync('../../skills','skills',{recursive:true})\"",
-    "postpack": "node -e \"require('node:fs').rmSync('skills',{recursive:true,force:true})\""
+    "prepack": "node -e \"const fs=require('node:fs');fs.rmSync('skills',{recursive:true,force:true});fs.cpSync('../../skills','skills',{recursive:true});fs.copyFileSync('../../agentdist.json','agentdist.json')\"",
+    "postpack": "node -e \"const fs=require('node:fs');fs.rmSync('skills',{recursive:true,force:true});fs.rmSync('agentdist.json',{force:true})\""
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.20.0",
@@ -91,6 +92,7 @@
     "zod": "3.25.76"
   },
   "dependencies": {
+    "agentdist": "^0.1.0",
     "pg": "^8.0.0"
   }
 }

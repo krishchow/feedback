@@ -56,4 +56,4 @@ Whether the reader tools are added to the user's sessions is their decision, bec
 
 Run this again when the endpoint, credentials, `contextFields`, `attachContext` or release process change.
 
-If the project should carry these skills itself, so anyone working in it has them without a plugin, `npx -y mcp-feedback@latest setup` copies them into its skills directory. Suggest it; the user decides whether to commit them.
+If the project should carry these skills itself, so anyone working in it has them without a plugin, `npx -y mcp-feedback@latest install --local` writes them into its agents' skills directories. Suggest it; the user decides whether to commit them.

@@ -7,6 +7,7 @@
     "test": "pnpm --filter mcp-feedback test",
     "typecheck": "pnpm --filter mcp-feedback typecheck",
     "gen:spec": "pnpm --filter mcp-feedback gen:spec",
+    "gen:plugins": "pnpm --filter mcp-feedback exec agentdist pack ../..",
     "release": "node scripts/release.mjs"
   }
 }

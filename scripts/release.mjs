@@ -16,9 +16,10 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pkgDir = `${root}packages/typescript`;
 const pkgJson = `${pkgDir}/package.json`;
-// The Codex plugin manifest states a version, kept the same as the package's. The Claude Code one states
-// none, so installed skills follow the repository's latest commit.
-const manifests = [`${root}.codex-plugin/plugin.json`];
+// agentdist.json states the version the skills install as, kept the same as the package's. The plugin
+// manifests are generated from it.
+const agentdist = `${root}agentdist.json`;
+const manifests = [agentdist, ...[".claude-plugin/plugin.json", ".codex-plugin/plugin.json"].map((path) => `${root}${path}`)];
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const dryRun = args.includes("--dry-run");
@@ -48,9 +49,8 @@ if (read("git", ["rev-parse", "HEAD"]) !== read("git", ["rev-parse", "origin/mai
 if (bump) run("npm", ["version", bump, "--no-git-tag-version"], { cwd: pkgDir, stdio: ["inherit", "ignore", "inherit"] });
 const next = version();
 const tag = `v${next}`;
-for (const manifest of manifests) {
-  writeFileSync(manifest, readFileSync(manifest, "utf8").replace(/"version": "[^"]*"/, `"version": "${next}"`));
-}
+writeFileSync(agentdist, readFileSync(agentdist, "utf8").replace(/"version": "[^"]*"/, `"version": "${next}"`));
+run("pnpm", ["gen:plugins"], { stdio: ["inherit", "ignore", "inherit"] });
 const undoBump = () => run("git", ["checkout", "--", pkgJson, ...manifests]);
 
 try {
