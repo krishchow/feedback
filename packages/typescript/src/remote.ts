@@ -3,7 +3,6 @@
 // later when the hub cannot be reached.
 
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import {
@@ -132,7 +131,6 @@ interface PendingSignIn {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 /** A failure worth retrying later: the hub is down, overloaded or unreachable. */
 class RetryableError extends Error {}
@@ -176,7 +174,8 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
   const timeoutMs = options.timeoutMs ?? 10_000;
   const renewAfterMs = (options.renewAfterSeconds ?? 24 * 60 * 60) * 1000;
   const doFetch = options.fetch ?? fetch;
-  const userAgent = `mcp-feedback-remote/${version}`;
+  // No version: reading package.json at run time breaks when the package is bundled.
+  const userAgent = "mcp-feedback-remote";
 
   const request = (path: string, token: string, body?: unknown) =>
     doFetch(endpoint + path, {
