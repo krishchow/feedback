@@ -106,7 +106,7 @@ const ingest = createIngestHandler({
   tokenFingerprintKey: process.env.FEEDBACK_FINGERPRINT_KEY,
 });
 
-app.use("/api/ingest", toNodeListener(ingest, { trustProxy: true })); // 1. first
+app.use("/api/ingest", toNodeListener(ingest));                       // 1. first (with Express, req.ip gives the client address)
 app.use("/api", requireBearer);                                       // 2. the app's own auth, which ingest must not go through
 app.use(express.json());                                              // 3. body parsing, which would consume the hub's request body
 ```

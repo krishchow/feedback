@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createIngestHandler, generateKeyPair, issueToken, publicKeyOf } from "../src/ingest/index.js";
+import { createIngestHandler, generateKeyPair, issueToken, publicKeyOf, toNodeListener } from "../src/ingest/index.js";
 import { memoryStore, type FeedbackStore } from "../src/index.js";
 import { uuidv7 } from "../src/register.js";
 import { fakeGitHub, ISSUER, post, startHub, submission } from "./ingest-helpers.js";
@@ -182,6 +182,28 @@ describe("ingest hub", () => {
     hub = await startHub({ quotas: { enrollPerAddressPerHour: 1 } });
     expect((await post(`${hub.url}/v1/enroll`, hub.projectKey, {})).status).toBe(201);
     expect((await post(`${hub.url}/v1/enroll`, hub.projectKey, {})).status).toBe(429);
+  });
+
+  it("takes the client address from Express's req.ip, or a clientAddress function, for the enrolment limit", async () => {
+    const { createServer } = await import("node:http");
+    const key = generateKeyPair("k1");
+    const signer = { kid: key.kid, privateKey: key.privateKey };
+    const projectKey = issueToken({ issuer: ISSUER, project: "acme", tier: "project" }, signer).token;
+    for (const options of [{}, { clientAddress: (req: { headers: Record<string, unknown> }) => String(req.headers["x-test-ip"]) }]) {
+      const handler = createIngestHandler({ issuer: ISSUER, keyring: { keys: [{ kid: key.kid, publicKey: key.publicKey }], signer }, store: memoryStore(), quotas: { enrollPerAddressPerHour: 1 } });
+      const listener = toNodeListener(handler, options as Parameters<typeof toNodeListener>[1]);
+      const server = createServer((req, res) => {
+        // What Express does with `trust proxy`: req.ip is the address the app trusts.
+        Object.defineProperty(req, "ip", { value: String(req.headers["x-test-ip"]) });
+        void listener(req, res);
+      });
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/enroll`;
+      const enrol = (ip: string) => fetch(url, { method: "POST", headers: { authorization: `Bearer ${projectKey}`, "x-test-ip": ip } }).then((r) => r.status);
+      expect([await enrol("203.0.113.1"), await enrol("203.0.113.1"), await enrol("203.0.113.2")]).toEqual([201, 429, 201]);
+      await new Promise((resolve) => server.close(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
   });
 
   it("answers 404 and 405 for other paths and methods", async () => {

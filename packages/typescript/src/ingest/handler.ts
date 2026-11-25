@@ -466,11 +466,16 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
 }
 
 /**
- * Adapts the handler to node:http and Express. Mount it before any body parser. With `trustProxy`,
- * the client address for the enrolment limit comes from the first X-Forwarded-For entry; only set
- * it behind a proxy that overwrites that header.
+ * Adapts the handler to node:http and Express. Mount it before any body parser.
+ *
+ * The client address (for the enrolment limit) is, in order: `clientAddress(req)` if given; the
+ * first X-Forwarded-For entry with `trustProxy`, which is only safe behind a proxy that overwrites
+ * that header; Express's `req.ip`, which follows the app's own `trust proxy` setting; the socket.
  */
-export function toNodeListener(handler: IngestHandler, options: { trustProxy?: boolean } = {}) {
+export function toNodeListener(
+  handler: IngestHandler,
+  options: { trustProxy?: boolean; clientAddress?: (req: IncomingMessage) => string | null | undefined } = {},
+) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       const host = req.headers.host ?? "localhost";
@@ -487,7 +492,10 @@ export function toNodeListener(handler: IngestHandler, options: { trustProxy?: b
         ...(hasBody ? { body: Readable.toWeb(req) as ReadableStream, duplex: "half" } : {}),
       } as RequestInit);
       const forwarded = options.trustProxy ? String(req.headers["x-forwarded-for"] ?? "").split(",")[0]?.trim() : "";
-      const response = await handler(request, { clientAddress: forwarded || req.socket.remoteAddress || null });
+      const expressIp = (req as IncomingMessage & { ip?: unknown }).ip;
+      const clientAddress =
+        options.clientAddress?.(req) || forwarded || (typeof expressIp === "string" ? expressIp : "") || req.socket.remoteAddress || null;
+      const response = await handler(request, { clientAddress });
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));
     } catch {
