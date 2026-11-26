@@ -1,6 +1,6 @@
 {
   "name": "mcp-feedback",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Drop-in feedback tools for MCP servers: agents submit structured feedback, stamped with the caller's identity, into a pluggable store.",
   "keywords": [
     "mcp",
