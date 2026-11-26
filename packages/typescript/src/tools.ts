@@ -83,6 +83,10 @@ const filterShape = {
   status: z.enum(FEEDBACK_STATUSES).optional(),
   severity: z.enum(FEEDBACK_SEVERITIES).optional(),
   subject: z.string().optional().describe("Only feedback from this caller subject."),
+  server: z
+    .string()
+    .optional()
+    .describe("Only feedback about this server (server.name). On an ingest hub that collects for several servers, the project name."),
   tool: z.string().optional().describe("Only feedback that involves this tool name."),
   tag: z.string().optional(),
   since: z.string().optional().describe("ISO 8601 timestamp; include feedback created at or after it."),
@@ -215,16 +219,29 @@ export const feedbackConfirmInstructions =
   "submit_feedback only after they explicitly confirm. Leave out secrets and personal data. " +
   SUBMIT_ONCE;
 
-export function submitToolDescription(requireConfirmation = false): string {
-  return SUBMIT_TOOL.description + (requireConfirmation ? CONFIRMATION_REQUIRED : "");
+/**
+ * The submit tool's description. `destination` names where reports go when that is somewhere other
+ * than the server the agent is talking to, so the user can be told before they confirm.
+ */
+export function submitToolDescription(requireConfirmation = false, destination?: string): string {
+  return (
+    SUBMIT_TOOL.description +
+    (destination ? ` Reports leave this machine and are sent to ${destination}.` : "") +
+    (requireConfirmation ? CONFIRMATION_REQUIRED : "")
+  );
 }
 
 /** `{ name, description }` entries for hosts that publish a tool catalog. */
 export const feedbackToolCatalog = [{ name: SUBMIT_TOOL.name, description: SUBMIT_TOOL.description }];
 
 /** The catalog entry exactly as registerFeedback advertises it with these options. */
-export function feedbackToolCatalogFor(options: { requireConfirmation?: boolean; toolPrefix?: string } = {}) {
-  return [{ name: (options.toolPrefix ?? "") + SUBMIT_TOOL.name, description: submitToolDescription(options.requireConfirmation) }];
+export function feedbackToolCatalogFor(options: { requireConfirmation?: boolean; toolPrefix?: string; destination?: string } = {}) {
+  return [
+    {
+      name: (options.toolPrefix ?? "") + SUBMIT_TOOL.name,
+      description: submitToolDescription(options.requireConfirmation, options.destination),
+    },
+  ];
 }
 
 export const feedbackReaderToolCatalog = Object.values(READER_TOOLS).map(({ name, description }) => ({

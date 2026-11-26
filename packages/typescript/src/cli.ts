@@ -39,6 +39,8 @@ Commands:
                         every project (--user); asks which harnesses. Run install --help.
   uninstall             Remove what install wrote
   status                Where the skills are installed
+  ingest <command>      Keys, tokens and a hub for collecting feedback from installed copies
+                        of a server (stdio servers). Run mcp-feedback ingest --help.
 
 Source (one is required):
   --mcp <url>           A server's reader endpoint (or MCP_FEEDBACK_URL). Sends
@@ -49,7 +51,7 @@ Source (one is required):
   --table <name>        Table name, default mcp_feedback (with --db or --postgres)
 
 Filters (stats, list, export):
-  --kind <k>  --status <s>  --severity <s>  --subject <s>  --tool <name>  --tag <t>
+  --kind <k>  --status <s>  --severity <s>  --subject <s>  --server <name>  --tool <name>  --tag <t>
   --since <iso>  --until <iso>  --ref <key=value> (an id in context.references)
 
 Other:
@@ -196,6 +198,10 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         "setup was replaced by install: npx -y mcp-feedback@latest install --local, or --user for every project.",
       );
     }
+    if (argv[0] === "ingest") {
+      const { runIngestCli } = await import("./ingest/cli.js");
+      return await runIngestCli(argv.slice(1), io);
+    }
     let parsed;
     try {
       parsed = parseArgs({
@@ -211,6 +217,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
           status: { type: "string" },
           severity: { type: "string" },
           subject: { type: "string" },
+          server: { type: "string" },
           tool: { type: "string" },
           tag: { type: "string" },
           since: { type: "string" },
@@ -244,6 +251,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       status,
       severity: oneOf("severity", values.severity, FEEDBACK_SEVERITIES),
       subject: values.subject,
+      server: values.server,
       tool: values.tool,
       tag: values.tag,
       since: values.since,
@@ -276,7 +284,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         if (!values.text) json(stats);
         else {
           io.out(`total: ${stats.total}`);
-          for (const group of ["by_status", "by_kind", "by_severity", "by_tool"] as const) {
+          for (const group of ["by_server", "by_status", "by_kind", "by_severity", "by_tool"] as const) {
             const counts = Object.entries(stats[group]).sort((a, b) => b[1] - a[1]);
             io.out(`${group.slice(3)}: ${counts.map(([key, count]) => `${key}=${count}`).join(", ") || "-"}`);
           }

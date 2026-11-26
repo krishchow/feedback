@@ -88,6 +88,8 @@ export function schemaStatements(dialect: Dialect, table: string): string[] {
     `CREATE INDEX IF NOT EXISTS ${table}_created_idx ON ${table} (created_at DESC, id DESC)`,
     `CREATE INDEX IF NOT EXISTS ${table}_status_idx ON ${table} (status)`,
     `CREATE INDEX IF NOT EXISTS ${table}_kind_idx ON ${table} (kind)`,
+    // An ingest hub keeps many servers' feedback in one table and reads it a server at a time.
+    `CREATE INDEX IF NOT EXISTS ${table}_server_idx ON ${table} (server_name)`,
   ];
 }
 
@@ -171,6 +173,7 @@ function where(dialect: Dialect, filter: FeedbackFilter): { clauses: string[]; p
   if (filter.status !== undefined) add("f.status = ?", filter.status);
   if (filter.severity !== undefined) add("f.severity = ?", filter.severity);
   if (filter.subject !== undefined) add("f.subject = ?", filter.subject);
+  if (filter.server !== undefined) add("f.server_name = ?", filter.server);
   if (filter.tool !== undefined) contains("tool_names", filter.tool);
   if (filter.tag !== undefined) contains("tags", filter.tag);
   if (filter.since !== undefined) add("f.created_at >= ?", filter.since);
@@ -254,6 +257,9 @@ export function sqlOperations(dialect: Dialect, table: string, run: Run) {
         by_status: await grouped("status"),
         by_severity: await grouped("severity"),
         by_tool: await counts(`SELECT j.value AS k, COUNT(*) AS c FROM ${table} f ${each}${filterSql} GROUP BY j.value`),
+        by_server: await counts(
+          `SELECT f.server_name AS k, COUNT(*) AS c FROM ${table} f${whereSql([...clauses, "f.server_name IS NOT NULL"])} GROUP BY f.server_name`,
+        ),
       };
     },
   };

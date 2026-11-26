@@ -57,6 +57,14 @@
     "./client": {
       "types": "./dist/client.d.ts",
       "default": "./dist/client.js"
+    },
+    "./remote": {
+      "types": "./dist/remote.d.ts",
+      "default": "./dist/remote.js"
+    },
+    "./ingest": {
+      "types": "./dist/ingest/index.d.ts",
+      "default": "./dist/ingest/index.js"
     }
   },
   "scripts": {

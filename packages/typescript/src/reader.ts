@@ -31,6 +31,7 @@ export function normalizeFilter(args: FeedbackFilter): FeedbackFilter {
       status: args.status,
       severity: args.severity,
       subject: args.subject,
+      server: args.server,
       tool: args.tool,
       tag: args.tag,
       since: normalizeTimestamp("since", args.since),
@@ -113,7 +114,11 @@ export interface FeedbackReaderClient {
 /** Reader operations straight against a store. `defaultBy` is used when a triage gives no `by`. */
 export function storeReader(store: FeedbackStore, defaultBy: string | null = null): FeedbackReaderClient {
   return {
-    stats: (filter) => store.stats(normalizeFilter(filter)),
+    // A custom store written before by_server existed still answers with a complete shape.
+    stats: async (filter) => {
+      const stats = await store.stats(normalizeFilter(filter));
+      return { ...stats, by_server: stats.by_server ?? {} };
+    },
     list: (query) => listPage(store, query),
     get: async (id) => {
       const record = await store.get(id);

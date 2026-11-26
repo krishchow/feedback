@@ -18,6 +18,8 @@ This asks which agent harnesses you use (Claude Code, Codex, Cursor, GitHub Copi
 | "Set this project up for reading its feedback" | `set-up-feedback-reading` | Once per project: finds the reader endpoint, credential, deployment, reference ids and release rule in the code and writes them down, so later sessions do not rediscover them. |
 | "Summarize the feedback agents have filed" | `read-feedback` | Reads the queue, groups it into problems worth fixing, and, when asked, works items through to closed. |
 
+A server that runs on each user's machine (a stdio server started with `npx`, a CLI) has no store its maintainer can read. The first skill recognises that and sets up an ingest hub for it instead, or tells you plainly that it needs one; see [Servers that run on their users' machines](packages/typescript/README.md#servers-that-run-on-their-users-machines).
+
 Run `install` again after upgrading to update them. It only replaces or removes files it wrote, and records them in `.agentdist/mcp-feedback.json`; commit that along with the skills. A file you edited is backed up before it is replaced. `--dry-run` shows what would change, `uninstall` takes the skills back out, and `status` shows where they are. The installer is [agentdist](https://www.npmjs.com/package/agentdist).
 
 To have the skills in your own sessions in every project instead, run `install --user`, or install them as a plugin, which your harness keeps up to date. Claude Code: `/plugin install mcp-feedback --marketplace krishchow/feedback`. Codex reads `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` from this repo.
@@ -53,8 +55,10 @@ The [package README](packages/typescript/README.md) is the reference: options, i
 
 - [`packages/typescript/`](packages/typescript/) is the implementation for `@modelcontextprotocol/sdk`, published on npm as [`mcp-feedback`](https://www.npmjs.com/package/mcp-feedback).
 - [`skills/`](skills/) holds the three skills above, and [`agentdist.json`](agentdist.json) declares them for the installer. The Claude Code and Codex plugin manifests are generated from it.
-- [`spec/`](spec/SPEC.md) is the language-neutral contract: record schema, tool definitions, store contract, conformance vectors, SQL layout. Implement it to support another language.
+- [`spec/`](spec/SPEC.md) is the language-neutral contract: record schema, tool definitions, store contract, conformance vectors, SQL layout, ingest protocol. Implement it to support another language.
 - [`examples/express-server/`](examples/express-server/) is a runnable stateless HTTP server with both endpoints.
+- [`examples/stdio-server/`](examples/stdio-server/) is a stdio server that sends its feedback to an ingest hub.
+- [`hub/`](hub/) has a Dockerfile and deployment notes for running a hub: one host that collects feedback from installed copies of all your servers.
 - [`CHANGELOG.md`](CHANGELOG.md) lists what changed in each release.
 
 ## Develop

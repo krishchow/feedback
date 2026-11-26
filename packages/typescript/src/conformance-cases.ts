@@ -22,7 +22,7 @@ const id = (n: number) => `00000000-0000-7000-8000-00000000000${n}`;
 function record(
   n: number,
   created_at: string,
-  fields: Pick<FeedbackRecord, "kind" | "severity" | "tags"> & { subject: string | null; tools: string[] },
+  fields: Pick<FeedbackRecord, "kind" | "severity" | "tags"> & { subject: string | null; tools: string[]; server?: string | null },
   context: FeedbackRecord["context"] = {},
 ): FeedbackRecord {
   return {
@@ -48,7 +48,7 @@ function record(
       client_version: "1.0.0",
       user_agent: null,
     },
-    server: { name: "conformance-server", version: "1.0.0" },
+    server: fields.server === null ? { name: null, version: null } : { name: fields.server ?? "conformance-server", version: "1.0.0" },
     status: "new",
     triage_note: null,
     triaged_by: null,
@@ -80,8 +80,8 @@ export const conformanceRecords: FeedbackRecord[] = [
     },
   ),
   record(3, "2026-01-03T00:00:00.000Z", { kind: "feature_request", severity: "none", tags: [], subject: "alice", tools: [] }),
-  record(4, "2026-01-03T00:00:00.000Z", { kind: "friction", severity: "minor", tags: ["docs"], subject: null, tools: ["list_orders"] }),
-  record(5, "2026-01-04T00:00:00.000Z", { kind: "praise", severity: "none", tags: [], subject: "bob", tools: [] }),
+  record(4, "2026-01-03T00:00:00.000Z", { kind: "friction", severity: "minor", tags: ["docs"], subject: null, tools: ["list_orders"], server: null }),
+  record(5, "2026-01-04T00:00:00.000Z", { kind: "praise", severity: "none", tags: [], subject: "bob", tools: [], server: "other-server" }),
   record(
     6,
     "2026-01-05T00:00:00.000Z",
@@ -102,6 +102,8 @@ export const conformanceCases: StoreCase[] = [
   { name: "filters by severity", op: "list", filter: { severity: "minor" }, limit: 10, expect_pages: [ids(6, 4)] },
   { name: "filters by status", op: "list", filter: { status: "resolved" }, limit: 10, expect_pages: [[]] },
   { name: "filters by subject", op: "list", filter: { subject: "alice" }, limit: 10, expect_pages: [ids(6, 3, 1)] },
+  { name: "filters by server", op: "list", filter: { server: "other-server" }, limit: 10, expect_pages: [ids(5)] },
+  { name: "a server filter leaves out records with no server", op: "list", filter: { server: "conformance-server" }, limit: 10, expect_pages: [ids(6, 3, 2, 1)] },
   { name: "filters by tool", op: "list", filter: { tool: "create_order" }, limit: 10, expect_pages: [ids(6, 2, 1)] },
   { name: "filters by tag", op: "list", filter: { tag: "timeout" }, limit: 10, expect_pages: [ids(6, 2)] },
   { name: "since is inclusive", op: "list", filter: { since: "2026-01-03T00:00:00.000Z" }, limit: 10, expect_pages: [ids(6, 5, 4, 3)] },
@@ -135,6 +137,7 @@ export const conformanceCases: StoreCase[] = [
       by_status: { new: 6 },
       by_severity: { major: 1, blocker: 1, none: 2, minor: 2 },
       by_tool: { create_order: 3, list_orders: 2 },
+      by_server: { "conformance-server": 4, "other-server": 1 },
     },
   },
   {
@@ -147,6 +150,7 @@ export const conformanceCases: StoreCase[] = [
       by_status: { new: 3 },
       by_severity: { major: 1, none: 1, minor: 1 },
       by_tool: { create_order: 2 },
+      by_server: { "conformance-server": 3 },
     },
   },
   {
@@ -159,13 +163,20 @@ export const conformanceCases: StoreCase[] = [
       by_status: { new: 2 },
       by_severity: { blocker: 1, minor: 1 },
       by_tool: { create_order: 2, list_orders: 1 },
+      by_server: { "conformance-server": 2 },
     },
+  },
+  {
+    name: "stats honour a server",
+    op: "stats",
+    filter: { server: "other-server" },
+    expect: { total: 1, by_kind: { praise: 1 }, by_status: { new: 1 }, by_severity: { none: 1 }, by_tool: {}, by_server: { "other-server": 1 } },
   },
   {
     name: "stats with no matches is empty",
     op: "stats",
     filter: { tag: "nope" },
-    expect: { total: 0, by_kind: {}, by_status: {}, by_severity: {}, by_tool: {} },
+    expect: { total: 0, by_kind: {}, by_status: {}, by_severity: {}, by_tool: {}, by_server: {} },
   },
   { name: "rejects a duplicate id", op: "insert_duplicate", id: id(1) },
   {

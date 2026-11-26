@@ -30,3 +30,5 @@ CREATE INDEX IF NOT EXISTS mcp_feedback_created_idx ON mcp_feedback (created_at 
 CREATE INDEX IF NOT EXISTS mcp_feedback_status_idx ON mcp_feedback (status);
 
 CREATE INDEX IF NOT EXISTS mcp_feedback_kind_idx ON mcp_feedback (kind);
+
+CREATE INDEX IF NOT EXISTS mcp_feedback_server_idx ON mcp_feedback (server_name);

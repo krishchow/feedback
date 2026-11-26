@@ -11,11 +11,31 @@ There are two halves to this job. Registering the tool makes feedback possible; 
 
 The package is TypeScript, for `@modelcontextprotocol/sdk` 1.x on Node 22.13+. For another language, implement `spec/` from https://github.com/krishchow/feedback instead.
 
+## First: what kind of server is it?
+
+Feedback is only worth collecting if the maintainer can read it. Where it can be stored depends on where the server runs, so settle this before anything else. Look at the code and the package, and ask only what they do not answer:
+
+- **Transport.** `StreamableHTTPServerTransport` (or SSE) means agents reach the server over the network. `StdioServerTransport` means the agent's own machine starts it as a subprocess.
+- **Distribution.** A `bin` entry in `package.json`, a published npm package, `npx` in the README, a plugin or installer that starts it: copies run on other people's machines. A server only its maintainer runs locally is not distributed.
+
+| Kind | Where feedback goes | Path |
+| --- | --- | --- |
+| HTTP, hosted by the maintainer | The server's own database | The steps below as written. |
+| stdio, run only by its maintainer | A SQLite file on that machine | The steps below, with SQLite and the CLI for reading. |
+| stdio (or any server) run on its users' machines | Nowhere the maintainer can read, unless it is sent somewhere | Stop and read the next paragraph. |
+
+A server that runs on its users' machines must not get a local store: each copy would write a database on someone else's computer that the maintainer never sees, and agents would be asking users to confirm reports that go nowhere. Tell the user that plainly, then offer the two choices:
+
+1. **Send it to an ingest hub the maintainer runs.** `remoteStore` from `mcp-feedback/remote` sends each report to the hub, and the hub writes into an ordinary store the maintainer reads as usual. It needs somewhere to run the hub (any Node host with SQLite or Postgres) and a signing key. Follow [references/remote-ingest.md](references/remote-ingest.md) instead of steps 2, 3 and 6 below; steps 4, 5 and 7 still apply.
+2. **Do not add the feedback tool.** If there is no hub and the maintainer does not want to run one, stop here without installing anything. Suggest instead that the server's instructions and skill point agents at the project's issue tracker for problems the user wants reported, with the same advice about including tool calls and leaving out secrets.
+
+Do not choose for the maintainer between these, and do not fall back to a local store.
+
 ## Before editing, find out
 
 1. **Where the `McpServer` is constructed**, and whether that happens once or per request. Either works; registration goes right after construction.
 2. **Whether tool handlers receive auth info.** Feedback is tied to the caller through `extra.authInfo`, which the SDK's HTTP transport copies from `req.auth`. If the server's auth middleware does not set `req.auth`, every record will have a null identity. Fix that first (step 2).
-3. **What storage the server already has, and whether its disk persists.** Use Postgres if the server has it or runs on ephemeral or multi-instance hosting. Use SQLite for a single long-lived instance or a local stdio server.
+3. **What storage the server already has, and whether its disk persists.** Use Postgres if the server has it or runs on ephemeral or multi-instance hosting. Use SQLite for a single long-lived instance, or a stdio server only its maintainer runs. (A server that runs on its users' machines has no store of its own; see the first section.)
 4. **Whether the server keeps a hand-written tool list** (a catalog, docs page, or a test asserting the exact tool names). Adding a tool will break those until updated.
 5. **What agent-facing guidance the server publishes**: skills (`skills/*/SKILL.md`, a plugin or marketplace in the repo, a skill served by the deployed app), the server `instructions` string, MCP prompts, and tool docs. These all need to mention feedback.
 
@@ -43,7 +63,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 
 Express's `Request` type has no `auth` field, hence the cast. If the server will have a reader endpoint (step 6), the same middleware guards it with a different credential and sets a different `clientId` there: that id is what records show as `triaged_by`. Refuse requests when a credential is not configured rather than letting them through, and do not let the two credentials be the same value. If every caller shares one credential, records cannot tell callers apart: say so in the server's docs, and supply `subject` through `resolveIdentity` if the server knows who is calling some other way.
 
-Stdio servers have no per-request auth; pass `resolveIdentity` to supply a subject (for example from an environment variable) or accept null identity.
+Stdio servers have no per-request auth. For one only its maintainer runs, pass `resolveIdentity` to supply a subject (for example from an environment variable) or accept null identity. For one that runs on its users' machines, the hub stamps identity from each installation's token; do not add a `resolveIdentity`.
 
 ### 3. Create the store once
 
@@ -131,7 +151,7 @@ Ask the user if they have not said. For a deployed server, recommend a reader en
   MCP_FEEDBACK_URL=https://<host>/<reader endpoint> MCP_FEEDBACK_TOKEN=<credential> npx -y mcp-feedback stats
   ```
 
-- **CLI against the store.** Nothing to add to the server; maintainers need database access. `npx -y mcp-feedback stats --db ./feedback.db` or `--postgres "$DATABASE_URL"`, then `list`, `export`, `get`, `close`, `reopen`, `triage`. Suits local and stdio servers.
+- **CLI against the store.** Nothing to add to the server; maintainers need database access. `npx -y mcp-feedback stats --db ./feedback.db` or `--postgres "$DATABASE_URL"`, then `list`, `export`, `get`, `close`, `reopen`, `triage`. Suits a server only its maintainer runs, and a hub's store.
 
 Document whichever you choose in the server's own docs: the URL or store, where the credential comes from, and the drain loop (`stats`, `list --status new`, `close <ids> --note`).
 
@@ -152,6 +172,7 @@ The people and agents who read it use this plugin's `read-feedback` skill, which
 
 ## Do not
 
+- Give a server that runs on its users' machines a local store.
 - Create the store per request.
 - Accept identity from tool arguments or let the agent pass a user id.
 - Put reader tools behind the same credential agents use.

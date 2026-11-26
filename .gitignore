@@ -7,3 +7,4 @@ dist/
 .DS_Store
 packages/typescript/skills/
 packages/typescript/agentdist.json
+hub/.env

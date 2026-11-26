@@ -45,7 +45,7 @@ export function memoryStore(): FeedbackStore {
       return copy(record);
     },
     async stats(filter) {
-      const stats: FeedbackStats = { total: 0, by_kind: {}, by_status: {}, by_severity: {}, by_tool: {} };
+      const stats: FeedbackStats = { total: 0, by_kind: {}, by_status: {}, by_severity: {}, by_tool: {}, by_server: {} };
       const bump = (counts: Record<string, number>, key: string) => {
         counts[key] = (counts[key] ?? 0) + 1;
       };
@@ -56,6 +56,7 @@ export function memoryStore(): FeedbackStore {
         bump(stats.by_status, record.status);
         bump(stats.by_severity, record.severity);
         for (const tool of toolNamesOf(record)) bump(stats.by_tool, tool);
+        if (record.server.name !== null) bump(stats.by_server, record.server.name);
       }
       return stats;
     },
