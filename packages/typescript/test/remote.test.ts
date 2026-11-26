@@ -161,10 +161,31 @@ describe("remoteStore", () => {
     expect((failure as Error).message).toBe("The feedback service did not accept this server's project key: This token has been revoked.");
   });
 
-  it("refuses plain http to another machine, and a key it cannot read", () => {
+  it("enrols by project name alone on a hub with open enrolment, and says plainly when a hub wants a key", async () => {
+    hub = await startHub({ openEnrollment: true });
+    const sent = record();
+    expect(await remoteStore({ endpoint: hub.url, project: "utm", stateDir: stateDir() }).insert(sent)).toEqual({ delivery: "stored" });
+    expect((await hub.store.get(sent.id))!).toMatchObject({ server: { name: "utm" }, identity: { scopes: ["ingest:install"] } });
+    expect(remoteStore({ endpoint: hub.url, project: "utm" }).stateDir).toMatch(/mcp-feedback[/\\]utm$/);
+    await hub.close();
+
+    hub = await startHub();
+    const failure = await remoteStore({ endpoint: hub.url, project: "utm", stateDir: stateDir() }).insert(record()).catch((error: Error) => error);
+    expect(failure).toBeInstanceOf(FeedbackDeliveryError);
+    expect((failure as Error).message).toBe("The feedback service did not enrol this server: This hub enrols installations with a project key, and none was sent.");
+  });
+
+  it("refuses plain http to another machine, and a key or project name it cannot use", () => {
     expect(() => remoteStore({ endpoint: "http://feedback.example.com", projectKey: "a.b.c" })).toThrow(/https/);
     expect(() => remoteStore({ endpoint: "https://feedback.example.com", projectKey: "not-a-key" })).toThrow(/project key/);
-    expect(() => remoteStore({ endpoint: "https://feedback.example.com" })).toThrow(/projectKey/);
+    expect(() => remoteStore({ endpoint: "https://feedback.example.com" })).toThrow(/pass project/);
+    expect(() => remoteStore({ endpoint: "https://feedback.example.com", project: "My Server" })).toThrow(/lowercase/);
+  });
+
+  it("refuses a project name that disagrees with the key", async () => {
+    hub = await startHub();
+    expect(() => remoteStore({ endpoint: hub!.url, projectKey: hub!.projectKey, project: "other" })).toThrow("remoteStore: the key is for acme, not other.");
+    expect(remoteStore({ endpoint: hub.url, projectKey: hub.projectKey, project: "acme", stateDir: stateDir() })).toBeTruthy();
   });
 
   it("reads MCP_FEEDBACK_DISABLED", () => {
@@ -225,10 +246,11 @@ describe("start()", () => {
 describe("signing in with GitHub", () => {
   it("asks once per machine, sends the waiting report as that person, and shares the sign-in across servers", async () => {
     const github = fakeGitHub({ login: "octocat" });
-    hub = await startHub({ github: { clientId: "Iv1.test", fetch: github.fetch } });
+    // utm enrols by name (open enrolment), notarize with a project key: sign-in works the same for both.
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: github.fetch }, openEnrollment: true });
     const identityDir = stateDir();
     const utmDir = stateDir();
-    const utm = remoteStore({ endpoint: hub.url, projectKey: hub.projectKeyFor("utm"), stateDir: utmDir, identityDir, signIn: "github", signInPollMs: 10 });
+    const utm = remoteStore({ endpoint: hub.url, project: "utm", stateDir: utmDir, identityDir, signIn: "github", signInPollMs: 10 });
 
     const waiting = record();
     const receipt = await utm.insert(waiting);
@@ -252,7 +274,7 @@ describe("signing in with GitHub", () => {
     expect(github.calls.filter((path) => path === "/login/device/code")).toHaveLength(1);
 
     // Starting up renews both the sign-in and the server's own token.
-    const restarted = remoteStore({ endpoint: hub.url, projectKey: hub.projectKeyFor("utm"), stateDir: utmDir, identityDir, signIn: "github", renewAfterSeconds: 0 });
+    const restarted = remoteStore({ endpoint: hub.url, project: "utm", stateDir: utmDir, identityDir, signIn: "github", renewAfterSeconds: 0 });
     expect((await restarted.start()).renewed).toEqual(["user", "project"]);
   });
 

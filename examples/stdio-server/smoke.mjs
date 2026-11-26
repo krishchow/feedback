@@ -1,7 +1,8 @@
 // End to end with real processes: the hub is `mcp-feedback ingest serve`, the server is server.mjs
 // over stdio, and the maintainer reads with `mcp-feedback list`. Then the hub goes down, a report is
-// queued on the user's machine, and it is delivered once the hub is back. Last, a second server
-// reports to the same hub, and the maintainer reads both through the hub's reader endpoint.
+// queued on the user's machine, and it is delivered once the hub is back. Last, a second server,
+// with no project key, enrols by name (open enrolment) and reports to the same hub, and the
+// maintainer reads both through the hub's reader endpoint.
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -39,7 +40,7 @@ const port = await new Promise((resolve) => {
 const endpoint = `http://127.0.0.1:${port}`;
 
 function startHub() {
-  const hub = spawn(process.execPath, [cli, "ingest", "serve", "--db", hubDb, "--port", String(port), "--key", keyFile, "--issuer", issuer], {
+  const hub = spawn(process.execPath, [cli, "ingest", "serve", "--db", hubDb, "--port", String(port), "--key", keyFile, "--issuer", issuer, "--open"], {
     stdio: ["ignore", "ignore", "pipe"],
     env: { ...process.env, MCP_FEEDBACK_READER_TOKEN: readerToken },
   });
@@ -55,13 +56,14 @@ const stopHub = (hub) => new Promise((resolve) => {
   hub.kill("SIGTERM");
 });
 
-async function connectServer(projectKey, state = stateDir) {
+/** `feedback` is `{ EXAMPLE_PROJECT_KEY }` to enrol with a project key, or `{ EXAMPLE_PROJECT }` to enrol by name. */
+async function connectServer(feedback, state = stateDir) {
   const client = new Client({ name: "smoke-agent", version: "1.0.0" });
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
       args: [join(here, "server.mjs")],
-      env: { ...process.env, EXAMPLE_FEEDBACK_ENDPOINT: endpoint, EXAMPLE_PROJECT_KEY: projectKey, EXAMPLE_STATE_DIR: state },
+      env: { ...process.env, EXAMPLE_FEEDBACK_ENDPOINT: endpoint, EXAMPLE_STATE_DIR: state, ...feedback },
       stderr: "pipe",
     }),
   );
@@ -77,7 +79,7 @@ try {
   const projectKey = run("ingest", "issue-key", "--project", "example", "--key", keyFile, "--issuer", issuer);
   hub = await startHub();
 
-  const agent = await connectServer(projectKey);
+  const agent = await connectServer({ EXAMPLE_PROJECT_KEY: projectKey });
   const { tools } = await agent.listTools();
   assert.match(tools.find((tool) => tool.name === "submit_feedback").description, /sent to the example-stdio maintainers/);
   const first = await agent.callTool({ name: "submit_feedback", arguments: report("echo cannot repeat") });
@@ -103,7 +105,7 @@ try {
 
   // Next start of the server, with the hub back: the queued report goes out on its own.
   hub = await startHub();
-  const restarted = await connectServer(projectKey);
+  const restarted = await connectServer({ EXAMPLE_PROJECT_KEY: projectKey });
   for (let tries = 0; tries < 50 && readdirSync(join(stateDir, "queue")).length; tries++) await new Promise((r) => setTimeout(r, 100));
   assert.equal(readdirSync(join(stateDir, "queue")).length, 0);
   const records = list();
@@ -112,9 +114,9 @@ try {
   assert.equal(new Set(records.map((item) => item.identity.subject)).size, 1, "both reports come from the same installation");
   await restarted.close();
 
-  // A second server, on another machine, reporting to the same hub under its own project.
-  const otherKey = run("ingest", "issue-key", "--project", "other-server", "--key", keyFile, "--issuer", issuer);
-  const other = await connectServer(otherKey, join(dir, "other-machine"));
+  // A second server, on another machine, reporting to the same hub under its own project. Nobody
+  // issued it anything: it enrols by name.
+  const other = await connectServer({ EXAMPLE_PROJECT: "other-server" }, join(dir, "other-machine"));
   assert.equal((await other.callTool({ name: "submit_feedback", arguments: report("from the other server") })).isError, undefined);
   await other.close();
 

@@ -27,6 +27,12 @@ export interface IngestQuotas {
   perIssuedSubjectPerDay: number;
   /** Reports a project accepts in 24 hours, from everyone together. */
   perProjectPerDay: number;
+  /**
+   * Reports the hub accepts in 24 hours from every project together, counted in the store each
+   * report goes to (a store shared with a host server counts the host's own reports too). Bounds
+   * what open enrolment, where anyone can name a new project, can add.
+   */
+  perHubPerDay: number;
   /** Enrolments one network address may make in an hour. Kept in this process's memory only. */
   enrollPerAddressPerHour: number;
 }
@@ -35,6 +41,7 @@ export const DEFAULT_INGEST_QUOTAS: IngestQuotas = {
   perInstallPerDay: 20,
   perIssuedSubjectPerDay: 200,
   perProjectPerDay: 500,
+  perHubPerDay: 2000,
   enrollPerAddressPerHour: 20,
 };
 
@@ -61,6 +68,14 @@ export interface IngestOptions {
    * own store or quotas.
    */
   projects?: Record<string, IngestProject>;
+  /**
+   * Let an installation enrol by naming its project, with no project key, so a new server needs
+   * only the hub's URL and a name. Anyone can then file under any name the hub takes (`projects`,
+   * when given, still limits which), within the quotas. Off by default; project keys work either way.
+   */
+  openEnrollment?: boolean;
+  /** Names open enrolment refuses, e.g. the one a host server files its own feedback under. A project key still enrols them. */
+  reservedProjects?: string[];
   quotas?: Partial<IngestQuotas>;
   limits?: Partial<FeedbackLimits>;
   /** How long an install token, and a signed-in person's per-project token, lasts. Default 30 days; installations renew them. */
@@ -186,6 +201,7 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
   const installTtl = options.installTokenTtlSeconds ?? 30 * 24 * 60 * 60;
   const userTtl = options.github?.userTokenTtlSeconds ?? 180 * 24 * 60 * 60;
   const enrollLimiter = windowLimiter(60 * 60 * 1000);
+  const reserved = new Set(options.reservedProjects ?? []);
   const quotasFor = (project: string): IngestQuotas => ({ ...DEFAULT_INGEST_QUOTAS, ...options.quotas, ...options.projects?.[project]?.quotas });
   /** The store a project's feedback goes to, or undefined when this hub does not take that project. */
   const storeFor = (project: string): FeedbackStore | undefined => {
@@ -256,21 +272,34 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
     return claims;
   };
 
+  /** The project an installation is enrolling in: its project key's, or, with open enrolment, the one the body names. */
+  const enrollingProject = async (request: Request, body: Record<string, unknown>): Promise<string> => {
+    if (request.headers.has("authorization")) return (await authenticate(request, ["project"])).claims.prj;
+    if (!options.openEnrollment) throw new HttpError(401, "unauthorized", "This hub enrols installations with a project key, and none was sent.");
+    const project = body.project;
+    if (typeof project !== "string" || !isValidProjectName(project)) {
+      throw new HttpError(400, "invalid_request", "project must be lowercase letters, digits, '.', '_' or '-', at most 64.");
+    }
+    if (reserved.has(project)) throw new HttpError(403, "reserved_project", `On this hub, ${project} needs a project key.`);
+    if (!storeFor(project)) throw new HttpError(404, "unknown_project", `This hub does not collect feedback for ${project}.`);
+    return project;
+  };
+
   // With a user_token, the installation becomes that person for this project; without, it is anonymous.
   const enroll = async (request: Request, info: IngestRequestInfo): Promise<Response> => {
-    const { claims } = await authenticate(request, ["project"]);
-    const signer = requireSigner();
     const body = await readObject(request);
+    const project = await enrollingProject(request, body);
+    const signer = requireSigner();
     if (body.user_token !== undefined) {
       const user = await userClaims(body.user_token);
-      return tokenResponse(201, issueToken({ issuer: options.issuer, project: claims.prj, tier: "issued", subject: user.sub, ttlSeconds: installTtl }, signer));
+      return tokenResponse(201, issueToken({ issuer: options.issuer, project, tier: "issued", subject: user.sub, ttlSeconds: installTtl }, signer));
     }
     const clientAddress = info.clientAddress ?? null;
-    if (clientAddress) limitAddress(clientAddress, claims.prj);
-    if (options.allowEnrollment && !(await options.allowEnrollment({ project: claims.prj, clientAddress }))) {
+    if (clientAddress) limitAddress(clientAddress, project);
+    if (options.allowEnrollment && !(await options.allowEnrollment({ project, clientAddress }))) {
       throw new HttpError(429, "rate_limited", "Enrolment is not available right now. Try again later.", { "retry-after": "3600" });
     }
-    return tokenResponse(201, issueToken({ issuer: options.issuer, project: claims.prj, tier: "install", ttlSeconds: installTtl }, signer));
+    return tokenResponse(201, issueToken({ issuer: options.issuer, project, tier: "install", ttlSeconds: installTtl }, signer));
   };
 
   // A fresh copy of a token the hub issued: same subject, project and tier, new expiry. Installations
@@ -305,10 +334,10 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
 
   // The installation gets a code for its user to enter at GitHub, and a handle to poll with.
   const githubStart = async (request: Request, info: IngestRequestInfo): Promise<Response> => {
-    const { claims } = await authenticate(request, ["project"]);
+    const project = await enrollingProject(request, await readObject(request));
     const config = github();
     requireSigner();
-    if (info.clientAddress) limitAddress(`signin:${info.clientAddress}`, claims.prj);
+    if (info.clientAddress) limitAddress(`signin:${info.clientAddress}`, project);
     const code = await startDeviceFlow(config).catch(githubFailure);
     return json(200, {
       verification_uri: code.verification_uri,
@@ -320,10 +349,11 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
   };
 
   const githubPoll = async (request: Request): Promise<Response> => {
-    await authenticate(request, ["project"]);
+    const body = await readObject(request);
+    await enrollingProject(request, body);
     const config = github();
     const signer = requireSigner();
-    const { handle } = await readObject(request);
+    const { handle } = body;
     if (typeof handle !== "string" || !handle || handle.length > 200) throw new HttpError(400, "invalid_request", "handle must be the value start returned.");
     const result = await pollDeviceFlow(config, handle).catch(githubFailure);
     if (result.status === "pending") return json(202, { status: "pending", ...(result.interval ? { interval: result.interval } : {}) });
@@ -345,6 +375,7 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
     issuer: options.issuer,
     endpoints: { enroll: INGEST_PATHS.enroll, feedback: INGEST_PATHS.feedback, renew: INGEST_PATHS.renew },
     signin: options.github && options.keyring.signer ? { github: { start: INGEST_PATHS.githubStart, poll: INGEST_PATHS.githubPoll } } : {},
+    open_enrollment: Boolean(options.openEnrollment && options.keyring.signer),
     install_token_ttl_seconds: installTtl,
     user_token_ttl_seconds: options.github ? userTtl : null,
   });
@@ -360,6 +391,9 @@ export function createIngestHandler(options: IngestOptions): IngestHandler {
     }
     if ((await store.stats({ server: claims.prj, since })).total >= quotas.perProjectPerDay) {
       throw limited("This project has received as many reports today as it accepts. Try again later.");
+    }
+    if ((await store.stats({ since })).total >= quotas.perHubPerDay) {
+      throw limited("The feedback service has received as many reports today as it accepts. Try again later.");
     }
   };
 

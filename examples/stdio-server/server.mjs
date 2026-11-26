@@ -1,8 +1,9 @@
 // A stdio MCP server, the kind that runs on its users' machines (npx, a CLI). It has no database a
-// maintainer could read, so feedback goes to the maintainer's ingest hub instead:
-//   mcp-feedback ingest keygen --out key.json
+// maintainer could read, so feedback goes to the maintainer's ingest hub instead. On a hub with open
+// enrolment (`ingest serve --open`) it only names its project. On one without, set EXAMPLE_PROJECT_KEY
+// to the output of
 //   mcp-feedback ingest issue-key --project example --key key.json --issuer https://feedback.example.com
-// and paste the printed project key below. It is public by design; it can only enrol.
+// which is public by design: it can only enrol.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -11,7 +12,8 @@ import { feedbackDisabled, remoteStore } from "mcp-feedback/remote";
 import { z } from "zod";
 
 const FEEDBACK_ENDPOINT = process.env.EXAMPLE_FEEDBACK_ENDPOINT ?? "https://feedback.example.com";
-const PROJECT_KEY = process.env.EXAMPLE_PROJECT_KEY ?? "<the output of mcp-feedback ingest issue-key>";
+const PROJECT_KEY = process.env.EXAMPLE_PROJECT_KEY;
+const PROJECT = process.env.EXAMPLE_PROJECT ?? "example";
 
 const server = new McpServer(
   { name: "example-stdio", version: "1.0.0" },
@@ -25,7 +27,7 @@ server.registerTool("echo", { description: "Repeat text.", inputSchema: { text: 
 if (!feedbackDisabled()) {
   const store = remoteStore({
     endpoint: FEEDBACK_ENDPOINT,
-    projectKey: PROJECT_KEY,
+    ...(PROJECT_KEY ? { projectKey: PROJECT_KEY } : { project: PROJECT }),
     // Users of a real server keep the default, a per-user state directory.
     stateDir: process.env.EXAMPLE_STATE_DIR,
     onError: (error) => console.error("feedback:", error instanceof Error ? error.message : error),

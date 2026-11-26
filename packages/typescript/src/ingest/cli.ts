@@ -19,10 +19,11 @@ Commands:
   issue-key --project <p>        Print a project key: ships in the server package, can only enrol
   issue-token --project <p> --subject <s> [--days <n>]
                                  Print a token for a person or team you know (default 90 days)
-  serve (--db <path> | --postgres <url>) [--project <p>...] [--port <n>] [--host <h>]
+  serve (--db <path> | --postgres <url>) [--project <p>...] [--open] [--port <n>] [--host <h>]
                                  Run the hub (POST /v1/enroll, POST /v1/feedback). Every project
                                  your key issued a project key for goes into one store, under its
-                                 own name; --project, repeated, accepts only those listed.
+                                 own name; --project, repeated, accepts only those listed. With
+                                 --open, a server can enrol by naming its project, with no key.
                                  With MCP_FEEDBACK_READER_TOKEN set (32+ characters), also serves
                                  the reader tools for all projects at POST /mcp, behind that token
 
@@ -34,6 +35,7 @@ Options (serve reads each from the environment variable shown when the flag is n
   --postgres <url>  Postgres connection URL                MCP_FEEDBACK_POSTGRES_URL, then DATABASE_URL
   --table <name>    Table, default mcp_feedback            MCP_FEEDBACK_TABLE
   --project <p>     Accept only these projects (repeat)    MCP_FEEDBACK_INGEST_PROJECTS (comma-separated)
+  --open            Enrol by project name, no key needed   MCP_FEEDBACK_INGEST_OPEN=1
   --port <n>        Default 8787                           PORT
   --host <h>        Default 127.0.0.1                      MCP_FEEDBACK_INGEST_HOST
   --trust-proxy     Client address from X-Forwarded-For    MCP_FEEDBACK_INGEST_TRUST_PROXY=1
@@ -170,6 +172,7 @@ export async function runIngestCli(argv: string[], io: IngestIo): Promise<number
         host: { type: "string" },
         revoked: { type: "string" },
         "trust-proxy": { type: "boolean" },
+        open: { type: "boolean" },
         help: { type: "boolean", short: "h" },
       },
     });
@@ -231,6 +234,7 @@ export async function runIngestCli(argv: string[], io: IngestIo): Promise<number
           .filter(Boolean),
       );
       const trustProxy = values["trust-proxy"] === true || /^(1|true|yes)$/i.test(env.MCP_FEEDBACK_INGEST_TRUST_PROXY ?? "");
+      const openEnrollment = values.open === true || /^(1|true|yes)$/i.test(env.MCP_FEEDBACK_INGEST_OPEN ?? "");
       const store = await openHubStore(values, env);
       // Opens the store (and creates its table) now, so a bad connection fails at start, not on the first report.
       await store.stats({ since: new Date().toISOString() });
@@ -240,6 +244,7 @@ export async function runIngestCli(argv: string[], io: IngestIo): Promise<number
         keyring: { keys: [{ kid: key.kid, publicKey: key.publicKey }], signer: { kid: key.kid, privateKey: key.privateKey } },
         store,
         ...(listed.length ? { projects: Object.fromEntries(listed.map((name): [string, IngestProject] => [name, {}])) } : {}),
+        openEnrollment,
         isRevoked: (claims) => revoked.has(claims.jti) || revoked.has(claims.sub),
         tokenFingerprintKey: env.MCP_FEEDBACK_FINGERPRINT_KEY,
         ...(env.MCP_FEEDBACK_GITHUB_CLIENT_ID
