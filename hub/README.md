@@ -91,7 +91,7 @@ Check it: `curl https://feedback.example.com/healthz` answers `{"ok":true}`.
 
 ## 4. Connect a server
 
-With `MCP_FEEDBACK_INGEST_OPEN=1`, there is nothing to issue: the server names its project, `remoteStore({ endpoint: "https://feedback.example.com", project: "my-server" })`, and the hub needs no change. Ask your agent to "add agent feedback to this MCP server" with the `add-feedback-to-mcp-server` skill (`npx -y mcp-feedback@latest install --local` installs it), which wires it for you.
+With `MCP_FEEDBACK_INGEST_OPEN=1`, there is nothing to issue: the server names its project, `remoteStore({ endpoint: "https://feedback.example.com", project: "my-server" })`, and the hub needs no change. Servers that read their endpoint with `feedbackEndpoint` also honour `MCP_FEEDBACK_ENDPOINT`, so `export MCP_FEEDBACK_ENDPOINT=https://feedback.example.com` once points every such server you run at this hub. Ask your agent to "add agent feedback to this MCP server" with the `add-feedback-to-mcp-server` skill (`npx -y mcp-feedback@latest install --local` installs it), which wires it for you.
 
 Without open enrolment, issue each server a project key, and pass it as `projectKey` in place of `project`:
 

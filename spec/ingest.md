@@ -157,5 +157,6 @@ A client is a sink: it provides `insert(record)` only, so `registerFeedback` can
 - It sends the record's own `id`, so a retry is recognised.
 - When the hub cannot be reached, or answers `429` or `5xx`, it MAY keep the report in a local queue and send it later, telling the agent it did so and where the report is waiting. It MUST NOT queue a report the hub refused (`400`, `403`, `404`, `409`, `413`). A queue MUST be bounded in size and age (30 days).
 - A host that uses a client MUST honour `MCP_FEEDBACK_DISABLED=1` by not registering the submit tool at all.
+- A host that reads the hub's URL from the environment SHOULD read its own variable first, if it has one, and then `MCP_FEEDBACK_ENDPOINT`, so that one setting serves every server on a machine. A host that ships a hub of its own uses it in place of `MCP_FEEDBACK_ENDPOINT`, which MUST NOT redirect it. An empty value counts as unset. `MCP_FEEDBACK_ENDPOINT` names an ingest hub; the reader endpoint is `MCP_FEEDBACK_URL`.
 
 When a client is used, the submit tool's description SHOULD say where reports are sent, so the user knows before confirming that the report leaves their machine.

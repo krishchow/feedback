@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildRecord, FeedbackDeliveryError, registerFeedback, registerFeedbackReader, type FeedbackRecord } from "../src/index.js";
-import { feedbackDisabled, remoteStore, type RemoteStoreOptions } from "../src/remote.js";
+import { feedbackDisabled, feedbackEndpoint, remoteStore, type RemoteStoreOptions } from "../src/remote.js";
 import { call, connect } from "./helpers.js";
 import { fakeGitHub, startHub } from "./ingest-helpers.js";
 
@@ -192,6 +192,29 @@ describe("remoteStore", () => {
     expect(feedbackDisabled({ MCP_FEEDBACK_DISABLED: "1" })).toBe(true);
     expect(feedbackDisabled({ MCP_FEEDBACK_DISABLED: "TRUE" })).toBe(true);
     expect(feedbackDisabled({})).toBe(false);
+  });
+
+  it("reads the hub from the server's own variable, then the shared MCP_FEEDBACK_ENDPOINT", () => {
+    const variable = "MY_SERVER_FEEDBACK_ENDPOINT";
+    const own = "https://own.example.com";
+    const shared = "https://shared.example.com";
+    expect(feedbackEndpoint({ variable, env: { [variable]: own, MCP_FEEDBACK_ENDPOINT: shared } })).toBe(own);
+    expect(feedbackEndpoint({ variable, env: { MCP_FEEDBACK_ENDPOINT: shared } })).toBe(shared);
+    expect(feedbackEndpoint({ env: { MCP_FEEDBACK_ENDPOINT: ` ${shared} ` } })).toBe(shared);
+    // An empty value counts as unset, so a harness that passes unset variables through as "" changes nothing.
+    expect(feedbackEndpoint({ variable, env: { [variable]: "", MCP_FEEDBACK_ENDPOINT: shared } })).toBe(shared);
+    expect(feedbackEndpoint({ variable, env: {} })).toBeUndefined();
+    expect(feedbackEndpoint({ variable, env: { [variable]: own, MCP_FEEDBACK_DISABLED: "1" } })).toBeUndefined();
+  });
+
+  it("uses a shipped fallback hub over the shared variable, and still honours MCP_FEEDBACK_DISABLED", () => {
+    const variable = "MY_SERVER_FEEDBACK_ENDPOINT";
+    const fallback = "https://maintainer.example.com";
+    expect(feedbackEndpoint({ variable, fallback, env: {} })).toBe(fallback);
+    // The shared variable points the servers someone runs that have no hub; it never redirects one that does.
+    expect(feedbackEndpoint({ variable, fallback, env: { MCP_FEEDBACK_ENDPOINT: "https://shared.example.com" } })).toBe(fallback);
+    expect(feedbackEndpoint({ variable, fallback, env: { [variable]: "https://own.example.com" } })).toBe("https://own.example.com");
+    expect(feedbackEndpoint({ variable, fallback, env: { MCP_FEEDBACK_DISABLED: "yes" } })).toBeUndefined();
   });
 });
 
