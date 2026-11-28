@@ -38,7 +38,7 @@ A token is a compact JWT (RFC 7519) signed with Ed25519 (`alg` `EdDSA`).
 
 ## Endpoints
 
-All but the discovery document take `POST` with a JSON body and a bearer token (`Authorization: Bearer <token>`). Errors are `{ "error": { "code": <string>, "message": <string> } }`; the message MUST be safe to show to an agent and SHOULD say what to do. Paths are relative to the hub's base URL, which may include a path when the hub is mounted inside another application.
+All but the discovery document take `POST` with a JSON body and, except for open enrolment, a bearer token (`Authorization: Bearer <token>`). Errors are `{ "error": { "code": <string>, "message": <string> } }`; the message MUST be safe to show to an agent and SHOULD say what to do. Paths are relative to the hub's base URL, which may include a path when the hub is mounted inside another application.
 
 ### `GET <base>/.well-known/mcp-feedback`
 
@@ -49,22 +49,25 @@ No authentication. What the hub offers:
   "issuer": "https://feedback.example.com",
   "endpoints": { "enroll": "/v1/enroll", "feedback": "/v1/feedback", "renew": "/v1/renew" },
   "signin": { "github": { "start": "/v1/signin/github/start", "poll": "/v1/signin/github/poll" } },
+  "open_enrollment": false,
   "install_token_ttl_seconds": 2592000,
   "user_token_ttl_seconds": 15552000
 }
 ```
 
-`signin` is `{}` when the hub offers no sign-in, and `user_token_ttl_seconds` is then `null`.
+`signin` is `{}` when the hub offers no sign-in, and `user_token_ttl_seconds` is then `null`. `open_enrollment` is `true` when an installation may enrol without a project key (see Projects).
 
 ### `POST <base>/v1/enroll`
 
-Bearer: a `project` token. Body: `{}` for an anonymous installation, or `{ "user_token": <user token> }` for a person who signed in. Returns `201`:
+Bearer: a `project` token, or, on a hub with open enrolment, none, with `"project": <name>` in the body. Body: `{}` for an anonymous installation, or `{ "user_token": <user token> }` for a person who signed in. Returns `201`:
 
 ```json
 { "token": "<token>", "subject": "install:…", "tier": "install", "expires_at": "2026-12-26T00:00:00.000Z" }
 ```
 
-With a valid, unrevoked `user_token`, the token is that person's `issued` token for the project key's project, with the user token's `sub`; otherwise `401` (or `403` if revoked). A hub that has no signing key answers `501` (`not_enrolling`). A hub SHOULD limit anonymous enrolments per network address.
+With a valid, unrevoked `user_token`, the token is that person's `issued` token for the project, with the user token's `sub`; otherwise `401` (or `403` if revoked). A hub that has no signing key answers `501` (`not_enrolling`). A hub SHOULD limit anonymous enrolments per network address.
+
+Without a bearer token, a hub that does not offer open enrolment answers `401`. One that does answers `400` for a missing or invalid project name, `403` (`reserved_project`) for a name it keeps for project keys, and `404` for a project it does not collect. When a bearer token is sent, the hub checks it and ignores `project`.
 
 ### `POST <base>/v1/renew`
 
@@ -72,7 +75,7 @@ Bearer: an `install` or `user` token that is still valid and not revoked. Body: 
 
 ### `POST <base>/v1/signin/github/start` and `…/poll`
 
-Bearer: a `project` token. The hub runs GitHub's OAuth device flow on the installation's behalf, so GitHub's credential never leaves the hub.
+Bearer: a `project` token, or none with `"project"` in the body, as for enrolment. The hub runs GitHub's OAuth device flow on the installation's behalf, so GitHub's credential never leaves the hub.
 
 - `start` (body `{}`) returns `{ verification_uri, user_code, expires_in, interval, handle }`. The installation shows the user the URI and code.
 - `poll` (body `{ "handle": … }`, no more often than `interval` seconds) answers `202 { "status": "pending" }` (with a larger `interval` when GitHub asks to slow down) until the user acts, then `200` with a `user` token for `github:<login>`, `403` (`signin_denied`, `not_allowed`, `revoked`) or `410` (`signin_expired`).
@@ -134,11 +137,12 @@ A project is a namespace on the hub. One maintainer can run one hub for every se
 
 - A hub SHOULD keep projects in one shared store, with `server.name` as the namespace. Readers then see every project at once, or one with the `server` filter, and `by_server` shows the split.
 - By default a hub SHOULD accept any project its keys signed a token for. The signature is the maintainer's authorisation, so a new server needs only a new project key and no change to the hub. A hub MAY instead accept only listed projects, and MAY give a project a store of its own.
+- A hub MAY offer **open enrolment**: an installation enrols by naming its project, and a new server needs nothing from the maintainer at all. A project key is public once its package ships, so this gives up little: what it gives up is the maintainer's say over which project names exist. A hub that offers it MUST bound what the whole hub accepts in a day, since anyone can name new projects to escape per-project quotas, and SHOULD keep names that must not be mixed with installations' reports (such as the name a host server files its own feedback under) for project keys. Install tokens from open enrolment are ordinary `install` tokens; listing projects, or revoking subjects, still applies to them.
 - A hub MAY serve the reader tools (`SPEC.md`) over its store, behind a maintainer credential that is never an ingest token.
 
 ## Quotas
 
-A hub MUST bound how much one token can submit, and SHOULD count within the project, so that one busy project does not use up another's allowance. The reference hub counts records in the store (`stats` with `server`, `subject` and `since`), so its quotas need no other state and hold across processes. Defaults: 20 reports a day per installation, 200 per issued subject, 500 per project.
+A hub MUST bound how much one token can submit, and SHOULD count within the project, so that one busy project does not use up another's allowance. The reference hub counts records in the store (`stats` with `server`, `subject` and `since`), so its quotas need no other state and hold across processes. Defaults: 20 reports a day per installation, 200 per issued subject, 500 per project, and 2000 across the hub.
 
 When the record's `id` already exists, a retry is recognised only if the existing record has the same `identity.subject` and the same `server.name`.
 
@@ -147,7 +151,7 @@ When the record's `id` already exists, a retry is recognised only if the existin
 A client is a sink: it provides `insert(record)` only, so `registerFeedback` can use it in place of a store.
 
 - It sends to `https`, or to `http` only on the same machine.
-- It enrols with the project key the first time, keeps the install token in a per-user state directory readable only by the user, and enrols again when the hub answers `401`. An issued token, when configured, is used as it is.
+- It enrols the first time, with the project key or, on a hub with open enrolment, by naming its project; keeps the install token in a per-user state directory readable only by the user, and enrols again when the hub answers `401`. An issued token, when configured, is used as it is.
 - It SHOULD renew its stored tokens when the server starts and they are more than a day old, so a machine in use never has to enrol or sign in again. It MUST NOT contact the hub at start on a machine that holds no token and no queued report.
 - With sign-in, it keeps the `user` token where every server on the machine that reports to the same hub can use it, and exchanges it at enrolment for each project. A report filed before the user has signed in waits in the queue, and the tool tells the agent the URI and code to give the user.
 - It sends the record's own `id`, so a retry is recognised.

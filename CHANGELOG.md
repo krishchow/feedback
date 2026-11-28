@@ -4,6 +4,10 @@ Versions are those of the `mcp-feedback` npm package. The skills are not version
 
 ## Unreleased
 
+- Open enrolment: a hub with `openEnrollment: true` (`ingest serve --open`, `MCP_FEEDBACK_INGEST_OPEN=1`) lets a server enrol by naming its project, `remoteStore({ endpoint, project })`, so connecting a new server needs nothing from the maintainer. `reservedProjects` keeps names, such as a host server's own, for project keys. A new hub-wide daily quota (`perHubPerDay`, 2000 by default) bounds what anyone naming new projects can add. Hubs say whether they offer it as `open_enrollment` at `/.well-known/mcp-feedback`.
+
+## 0.7.0 (2026-11-26)
+
 - The skills are installed by [agentdist](https://www.npmjs.com/package/agentdist): `mcp-feedback install` puts them into this repository (`--local`) or into every project for you (`--user`), for Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI and the other harnesses agentdist supports. `uninstall` removes what it wrote and `status` shows where they are. Its record of what it wrote is `.agentdist/mcp-feedback.json`.
 - `mcp-feedback setup` is gone; it now says to run `install --local`. A project set up with it has copies `install` did not write, so it reports them as conflicts: delete the three skill folders and `.mcp-feedback.json` from `.agents/skills` or `.claude/skills` first, or pass `--force`, which backs them up before replacing them.
 - The Claude Code and Codex plugin manifests are generated from `agentdist.json`. The Claude Code plugin states a version again, so installed copies update when a release is cut rather than on every commit.

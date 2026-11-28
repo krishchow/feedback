@@ -13,6 +13,7 @@ import {
   unverifiedProjectOf,
   type IngestSubmission,
 } from "./ingest/protocol.js";
+import { isValidProjectName } from "./ingest/tokens.js";
 import { FeedbackDeliveryError, type FeedbackReceipt, type FeedbackSink } from "./store.js";
 import type { FeedbackRecord } from "./types.js";
 
@@ -20,8 +21,13 @@ export interface RemoteStoreOptions {
   /** The hub's base URL, e.g. `https://feedback.example.com`. Must be HTTPS unless it is this machine. */
   endpoint: string;
   /**
-   * The project key the maintainer issued for this server. It is public by design and ships in the
-   * package; the hub exchanges it for this installation's own token.
+   * The name this server's reports are filed under, for a hub with open enrolment: no project key
+   * needed. Lowercase letters, digits, `.`, `_` or `-`, usually the package name.
+   */
+  project?: string;
+  /**
+   * The project key the maintainer issued for this server, for a hub that wants one. It is public by
+   * design and ships in the package; the hub exchanges it for this installation's own token.
    */
   projectKey?: string;
   /** A token the maintainer issued to a known person or team, usually read from the environment. Skips enrolment. */
@@ -161,10 +167,14 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
   const url = checkEndpoint(options.endpoint);
   const endpoint = url.href.replace(/\/+$/, "");
   const credential = options.token ?? options.projectKey;
-  if (!credential) throw new Error("remoteStore: pass projectKey (or an issued token).");
-  const project = unverifiedProjectOf(credential);
+  if (!credential && !options.project) throw new Error("remoteStore: pass project (or projectKey, or an issued token).");
+  if (options.project !== undefined && !isValidProjectName(options.project)) {
+    throw new Error("remoteStore: project is lowercase letters, digits, '.', '_' or '-', at most 64.");
+  }
+  const project = credential ? unverifiedProjectOf(credential) : options.project;
   if (!project) throw new Error("remoteStore: the project key is not one an mcp-feedback hub issues.");
-  if (options.signIn && !options.projectKey) throw new Error("remoteStore: signIn needs the projectKey.");
+  if (options.project && options.project !== project) throw new Error(`remoteStore: the key is for ${project}, not ${options.project}.`);
+  if (options.signIn && !options.projectKey && !options.project) throw new Error("remoteStore: signIn needs project or projectKey.");
   const stateDir = options.stateDir ?? join(stateRoot(), project);
   const identityDir = options.identityDir ?? join(stateRoot(), "_hubs", `${url.host}${url.pathname}`.replace(/[^A-Za-z0-9.-]+/g, "_"));
   const queueDir = join(stateDir, "queue");
@@ -177,13 +187,17 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
   // No version: reading package.json at run time breaks when the package is bundled.
   const userAgent = "mcp-feedback-remote";
 
-  const request = (path: string, token: string, body?: unknown) =>
+  const request = (path: string, token: string | undefined, body?: unknown) =>
     doFetch(endpoint + path, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "user-agent": userAgent },
+      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), "content-type": "application/json", "user-agent": userAgent },
       body: body === undefined ? "{}" : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
+
+  /** Before this installation has a token of its own: with the project key, or by naming the project. */
+  const enrolling = (path: string, body: Record<string, unknown> = {}) =>
+    options.projectKey ? request(path, options.projectKey, body) : request(path, undefined, { ...body, project });
 
   /** Writes through a temporary file, so a crash never leaves half a file for the next run to choke on. */
   const writePrivate = async (file: string, value: unknown) => {
@@ -223,7 +237,7 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
 
   /** With a sign-in, the hub makes this installation that person for this project; without, it is anonymous. */
   const enroll = async (userToken?: string): Promise<string> => {
-    const response = await request(INGEST_PATHS.enroll, options.projectKey!, userToken ? { user_token: userToken } : {});
+    const response = await enrolling(INGEST_PATHS.enroll, userToken ? { user_token: userToken } : {});
     if (!response.ok) {
       const message = await hubMessage(response);
       if (retryable(response.status)) throw new RetryableError(message);
@@ -232,7 +246,11 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
         await rm(userFile, { force: true });
         throw new SignInRequired(message);
       }
-      throw new FeedbackDeliveryError(`The feedback service did not accept this server's project key: ${message}`);
+      throw new FeedbackDeliveryError(
+        options.projectKey
+          ? `The feedback service did not accept this server's project key: ${message}`
+          : `The feedback service did not enrol this server: ${message}`,
+      );
     }
     const body = await tokenBody(response);
     await save(tokenFile, body);
@@ -269,7 +287,7 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
       await sleep(interval);
       let response: Response;
       try {
-        response = await request(INGEST_PATHS.githubPoll, options.projectKey!, { handle: signIn.handle });
+        response = await enrolling(INGEST_PATHS.githubPoll, { handle: signIn.handle });
       } catch {
         continue; // Unreachable for a moment; keep trying until the code expires.
       }
@@ -298,7 +316,7 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
   /** Starts a sign-in, or returns the one already waiting for the user. */
   const beginSignIn = async (): Promise<PendingSignIn> => {
     if (pending && pending.expiresAt - Date.now() > 60_000) return pending;
-    const response = await request(INGEST_PATHS.githubStart, options.projectKey!);
+    const response = await enrolling(INGEST_PATHS.githubStart);
     if (!response.ok) {
       const message = await hubMessage(response);
       if (retryable(response.status)) throw new RetryableError(message);
@@ -487,7 +505,7 @@ export function remoteStore(options: RemoteStoreOptions): RemoteStore {
             // A signed-in person's token for this project is renewed from their sign-in.
             const user = usable(await readCached(userFile));
             return user
-              ? request(INGEST_PATHS.enroll, options.projectKey!, { user_token: user.token })
+              ? enrolling(INGEST_PATHS.enroll, { user_token: user.token })
               : new Response(null, { status: 401 });
           });
           if (renewedProject) renewed.push("project");

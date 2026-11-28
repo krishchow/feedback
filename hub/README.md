@@ -44,7 +44,8 @@ npx -y mcp-feedback ingest keygen --out hub-key.json
 | `MCP_FEEDBACK_READER_TOKEN` | recommended | 32+ random characters (`openssl rand -base64 32`). Turns on the reader endpoint at `/mcp` for every project. Without it, read the database directly. |
 | `MCP_FEEDBACK_FINGERPRINT_KEY` | recommended | Random and stable. Keys the token fingerprints stored with each report. |
 | `MCP_FEEDBACK_INGEST_TRUST_PROXY` | behind a proxy | `1` to take the client address from `X-Forwarded-For`, which limits enrolments per address. Only behind a proxy that overwrites that header. |
-| `MCP_FEEDBACK_INGEST_PROJECTS` | no | Comma-separated. Accept only these projects. Empty accepts every project your key issued a project key for. |
+| `MCP_FEEDBACK_INGEST_OPEN` | recommended | `1` lets a server enrol by naming its project, so connecting a new server needs nothing from you (step 4). Anyone who finds the hub can then file under any name it accepts, within the quotas. |
+| `MCP_FEEDBACK_INGEST_PROJECTS` | no | Comma-separated. Accept only these projects. Empty accepts every project your key issued a project key for, and with open enrolment any name. |
 | `MCP_FEEDBACK_INGEST_REVOKED` | no | Comma-separated token ids (`jti`) or subjects to refuse. Read on start, so restart after changing it. |
 | `MCP_FEEDBACK_GITHUB_CLIENT_ID` | no | Turns on GitHub sign-in; see "GitHub sign-in" below. |
 | `MCP_FEEDBACK_GITHUB_ORGS`, `MCP_FEEDBACK_GITHUB_USERS` | no | Comma-separated. Only members of these organisations, or these logins, may sign in. |
@@ -90,13 +91,15 @@ Check it: `curl https://feedback.example.com/healthz` answers `{"ok":true}`.
 
 ## 4. Connect a server
 
-For each server you want feedback from, issue a project key. The hub needs no change:
+With `MCP_FEEDBACK_INGEST_OPEN=1`, there is nothing to issue: the server names its project, `remoteStore({ endpoint: "https://feedback.example.com", project: "my-server" })`, and the hub needs no change. Ask your agent to "add agent feedback to this MCP server" with the `add-feedback-to-mcp-server` skill (`npx -y mcp-feedback@latest install --local` installs it), which wires it for you.
+
+Without open enrolment, issue each server a project key, and pass it as `projectKey` in place of `project`:
 
 ```sh
 npx -y mcp-feedback ingest issue-key --project my-server --key hub-key.json --issuer https://feedback.example.com
 ```
 
-The project key is public by design: it goes in the server's source and can only enrol an installation. Then wire the server with `remoteStore`, or ask your agent to "add agent feedback to this MCP server" with the `add-feedback-to-mcp-server` skill (`npx -y mcp-feedback@latest install --local` installs it), which does this for you.
+The project key is public by design: it goes in the server's source and can only enrol an installation. What it adds is your say over which project names exist on the hub.
 
 Reports are anonymous by default: each installation has its own `install:…` subject. To have your own and your team's reports carry who sent them, turn on GitHub sign-in (next section) and pass `signIn: "github"` to `remoteStore` in those servers. For a one-off without GitHub, you can still issue a token by hand and deliver it privately:
 
@@ -128,7 +131,8 @@ For agent sessions, `npx -y mcp-feedback serve` with the same two variables give
 
 ## Operating it
 
-- **Quotas.** By default each installation can file 20 reports a day, each issued token 200, and each project 500, counted per project. To change them, mount the hub as a library (`createIngestHandler` in the package README).
+- **Quotas.** By default each installation can file 20 reports a day, each issued token 200, each project 500, and the whole hub 2000. To change them, mount the hub as a library (`createIngestHandler` in the package README).
+- **Open enrolment gone wrong.** If strangers start filing under made-up names, set `MCP_FEEDBACK_INGEST_PROJECTS` to the names you use and restart: everything else is refused from then on, including installations that already enrolled.
 - **Revoking.** Records show each submitter's subject (`install:…`, `github:<login>`). To stop a misbehaving installation, a person, or a leaked token, add its subject or `jti` to `MCP_FEEDBACK_INGEST_REVOKED` and restart. Revoking `github:<login>` also stops that person's sign-in from renewing.
 - **Renewal traffic.** Each machine that has used feedback renews its token at most once a day, when a server starts. Machines that never filed feedback never contact the hub. To rotate a project key, issue a new one, ship it in a release, then revoke the old key's `jti`.
 - **Several instances.** Quotas are counted in the database, so they hold across instances. The per-address enrolment limit is kept in each instance's memory; with many instances, mount the hub as a library and add an `allowEnrollment` hook backed by shared storage.

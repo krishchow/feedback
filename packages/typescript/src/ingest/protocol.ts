@@ -20,6 +20,8 @@ export interface HubMetadata {
   endpoints: { enroll: string; feedback: string; renew: string };
   /** Ways to sign in, with their endpoints. Empty when the hub only takes anonymous installations and issued tokens. */
   signin: { github?: { start: string; poll: string } };
+  /** True when an installation may enrol by naming its project (`{"project": …}` in the body), with no project key. */
+  open_enrollment: boolean;
   install_token_ttl_seconds: number;
   user_token_ttl_seconds: number | null;
 }

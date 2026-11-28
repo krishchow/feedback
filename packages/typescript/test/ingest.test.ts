@@ -102,6 +102,40 @@ describe("ingest hub", () => {
     expect((await post(`${hub.url}/v1/feedback`, hub.issue("carol"), submission())).status).toBe(429);
   });
 
+  it("with open enrolment, enrols by project name alone, except reserved, invalid and unlisted names", async () => {
+    hub = await startHub();
+    const closed = await post(`${hub.url}/v1/enroll`, null, { project: "utm" });
+    expect(closed).toMatchObject({ status: 401, body: { error: { message: "This hub enrols installations with a project key, and none was sent." } } });
+    await hub.close();
+
+    hub = await startHub({ openEnrollment: true, reservedProjects: ["meme-lab"] });
+    const enrol = await post(`${hub.url}/v1/enroll`, null, { project: "utm" });
+    expect(enrol).toMatchObject({ status: 201, body: { tier: "install", subject: expect.stringMatching(/^install:/) } });
+    const sent = await post(`${hub.url}/v1/feedback`, enrol.body.token, submission());
+    expect((await hub.store.get(sent.body.id))!).toMatchObject({ server: { name: "utm" }, identity: { scopes: ["ingest:install"] } });
+    expect(await post(`${hub.url}/v1/enroll`, null, { project: "meme-lab" })).toMatchObject({ status: 403, body: { error: { code: "reserved_project" } } });
+    expect((await post(`${hub.url}/v1/enroll`, hub.projectKeyFor("meme-lab"), {})).status).toBe(201);
+    expect((await post(`${hub.url}/v1/enroll`, null, { project: "Not Valid" })).status).toBe(400);
+    expect((await post(`${hub.url}/v1/enroll`, null, {})).status).toBe(400);
+    // A project key is still checked when one is sent.
+    expect((await post(`${hub.url}/v1/enroll`, "not.a.token", { project: "utm" })).status).toBe(401);
+    await hub.close();
+
+    hub = await startHub({ openEnrollment: true, projects: { utm: {} } });
+    expect((await post(`${hub.url}/v1/enroll`, null, { project: "utm" })).status).toBe(201);
+    expect((await post(`${hub.url}/v1/enroll`, null, { project: "other" })).status).toBe(404);
+  });
+
+  it("caps the reports the whole hub takes in a day, however many projects they name", async () => {
+    hub = await startHub({ openEnrollment: true, quotas: { perHubPerDay: 2 } });
+    const statuses = [];
+    for (const project of ["a", "b", "c"]) {
+      const enrol = await post(`${hub.url}/v1/enroll`, null, { project });
+      statuses.push((await post(`${hub.url}/v1/feedback`, enrol.body.token, submission())).status);
+    }
+    expect(statuses).toEqual([201, 201, 429]);
+  });
+
   it("treats a repeated id from the same submitter as a retry, and refuses it from anyone else", async () => {
     hub = await startHub();
     const id = uuidv7();
@@ -235,13 +269,15 @@ describe("ingest hub", () => {
       issuer: ISSUER,
       endpoints: { enroll: "/v1/enroll", feedback: "/v1/feedback", renew: "/v1/renew" },
       signin: {},
+      open_enrollment: false,
       install_token_ttl_seconds: 30 * 86400,
       user_token_ttl_seconds: null,
     });
     await hub.close();
-    hub = await startHub({ github: { clientId: "Iv1.test", fetch: fakeGitHub().fetch } });
+    hub = await startHub({ github: { clientId: "Iv1.test", fetch: fakeGitHub().fetch }, openEnrollment: true });
     const withGitHub = await (await fetch(`${hub.url}/.well-known/mcp-feedback`)).json();
     expect(withGitHub.signin).toEqual({ github: { start: "/v1/signin/github/start", poll: "/v1/signin/github/poll" } });
+    expect(withGitHub.open_enrollment).toBe(true);
     expect(withGitHub.user_token_ttl_seconds).toBe(180 * 86400);
   });
 
