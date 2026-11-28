@@ -4,6 +4,10 @@ Versions are those of the `mcp-feedback` npm package. The skills are not version
 
 ## Unreleased
 
+- Open enrolment: a hub with `openEnrollment: true` (`ingest serve --open`, `MCP_FEEDBACK_INGEST_OPEN=1`) lets a server enrol by naming its project, `remoteStore({ endpoint, project })`, so connecting a new server needs nothing from the maintainer. `reservedProjects` keeps names, such as a host server's own, for project keys. A new hub-wide daily quota (`perHubPerDay`, 2000 by default) bounds what anyone naming new projects can add. Hubs say whether they offer it as `open_enrollment` at `/.well-known/mcp-feedback`.
+
+## 0.7.0 (2026-11-26)
+
 - The skills are installed by [agentdist](https://www.npmjs.com/package/agentdist): `mcp-feedback install` puts them into this repository (`--local`) or into every project for you (`--user`), for Claude Code, Codex, Cursor, GitHub Copilot, Gemini CLI and the other harnesses agentdist supports. `uninstall` removes what it wrote and `status` shows where they are. Its record of what it wrote is `.agentdist/mcp-feedback.json`.
 - `mcp-feedback setup` is gone; it now says to run `install --local`. A project set up with it has copies `install` did not write, so it reports them as conflicts: delete the three skill folders and `.mcp-feedback.json` from `.agents/skills` or `.claude/skills` first, or pass `--force`, which backs them up before replacing them.
 - The Claude Code and Codex plugin manifests are generated from `agentdist.json`. The Claude Code plugin states a version again, so installed copies update when a release is cut rather than on every commit.
@@ -15,7 +19,6 @@ Versions are those of the `mcp-feedback` npm package. The skills are not version
 - GitHub sign-in: with `signIn: "github"`, `remoteStore` asks its user to sign in once per machine with GitHub's device flow (run by the hub, so GitHub's credential never reaches the user's disk), and reports carry `github:<login>`. The sign-in is a hub-wide `user` token shared by every server on the machine that reports to the same hub. Hubs turn it on with `github: { clientId }` (`MCP_FEEDBACK_GITHUB_CLIENT_ID`), optionally limited to organisations or logins.
 - `remoteStore().start()`: call once at startup. It renews stored tokens that are more than a day old (`POST /v1/renew`), so a machine in use keeps its identity indefinitely, then sends queued reports. It contacts the hub only on machines that have used feedback.
 - Hubs publish what they offer at `/.well-known/mcp-feedback`.
-- Open enrolment: a hub with `openEnrollment: true` (`ingest serve --open`, `MCP_FEEDBACK_INGEST_OPEN=1`) lets a server enrol by naming its project, `remoteStore({ endpoint, project })`, so connecting a new server needs nothing from the maintainer. `reservedProjects` keeps names, such as a host server's own, for project keys. A new hub-wide daily quota (`perHubPerDay`, 2000 by default) bounds what anyone naming new projects can add.
 - `validateSubmission` and `buildRecord` are exported, so other entry points apply exactly the rules `submit_feedback` does.
 - `add-feedback-to-mcp-server` skill: starts by working out what kind of server it is. A server distributed to other people that runs on their machines gets the hub path, or a clear stop when there is no hub, instead of a store nobody can read.
 
