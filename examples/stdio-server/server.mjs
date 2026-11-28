@@ -8,23 +8,26 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { feedbackConfirmInstructions, registerFeedback } from "mcp-feedback";
-import { feedbackDisabled, remoteStore } from "mcp-feedback/remote";
+import { feedbackEndpoint, remoteStore } from "mcp-feedback/remote";
 import { z } from "zod";
 
-const FEEDBACK_ENDPOINT = process.env.EXAMPLE_FEEDBACK_ENDPOINT ?? "https://feedback.example.com";
+// EXAMPLE_FEEDBACK_ENDPOINT if set, otherwise the hub this server ships. Undefined, and no feedback
+// tool, when the user sets MCP_FEEDBACK_DISABLED=1. Leave out `fallback` to send nothing unless the
+// person running the server names a hub (here or in the shared MCP_FEEDBACK_ENDPOINT).
+const FEEDBACK_ENDPOINT = feedbackEndpoint({ variable: "EXAMPLE_FEEDBACK_ENDPOINT", fallback: "https://feedback.example.com" });
 const PROJECT_KEY = process.env.EXAMPLE_PROJECT_KEY;
 const PROJECT = process.env.EXAMPLE_PROJECT ?? "example";
 
 const server = new McpServer(
   { name: "example-stdio", version: "1.0.0" },
-  { instructions: `Use echo to repeat text. ${feedbackDisabled() ? "" : feedbackConfirmInstructions}` },
+  { instructions: `Use echo to repeat text. ${FEEDBACK_ENDPOINT ? feedbackConfirmInstructions : ""}` },
 );
 server.registerTool("echo", { description: "Repeat text.", inputSchema: { text: z.string() } }, ({ text }) => ({
   content: [{ type: "text", text }],
 }));
 
 // Users can turn feedback off; the tool is then not offered at all.
-if (!feedbackDisabled()) {
+if (FEEDBACK_ENDPOINT) {
   const store = remoteStore({
     endpoint: FEEDBACK_ENDPOINT,
     ...(PROJECT_KEY ? { projectKey: PROJECT_KEY } : { project: PROJECT }),

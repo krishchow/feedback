@@ -28,13 +28,15 @@ npx -y mcp-feedback ingest issue-key --project <project> --key ingest-key.json -
 
 ```ts
 import { feedbackConfirmInstructions, registerFeedback } from "mcp-feedback";
-import { feedbackDisabled, remoteStore } from "mcp-feedback/remote";
+import { feedbackEndpoint, remoteStore } from "mcp-feedback/remote";
 
-const FEEDBACK_ENDPOINT = "https://feedback.example.com";
+// <SERVER>_FEEDBACK_ENDPOINT, else the shared MCP_FEEDBACK_ENDPOINT; undefined (feedback off) when
+// neither is set or MCP_FEEDBACK_DISABLED is.
+const endpoint = feedbackEndpoint({ variable: "<SERVER>_FEEDBACK_ENDPOINT" });
 
-if (!feedbackDisabled()) {
+if (endpoint) {
   const store = remoteStore({
-    endpoint: FEEDBACK_ENDPOINT,
+    endpoint,
     project: "<project>", // on a hub without open enrolment: projectKey: "<the project key>" (public: it can only enrol)
     // signIn: "github", // only for tools used by the maintainer and people they know; see below
     onError: (error) => console.error("feedback:", error), // stderr: stdout carries the protocol
@@ -51,7 +53,8 @@ if (!feedbackDisabled()) {
 
 - **Always `requireConfirmation: true`**, with `feedbackConfirmInstructions` in the server's instructions. Reports leave the user's machine; the user sees each one first.
 - **`destination`** is added to the tool's description, so the user knows where a report goes before confirming.
-- **`feedbackDisabled()`** reads `MCP_FEEDBACK_DISABLED`. Document it in the server's README as the way to turn feedback off.
+- **Where the endpoint comes from: ask the maintainer.** `feedbackEndpoint` keeps the hub's URL out of the repository and out of the package: feedback is on only where someone set `<SERVER>_FEEDBACK_ENDPOINT` (use the server's existing environment prefix) or the shared `MCP_FEEDBACK_ENDPOINT`, which a maintainer sets once for all their servers. Right for an open-source server whose maintainer wants their own and their team's reports. To collect from every installation instead, pass the hub as `fallback`: `feedbackEndpoint({ variable, fallback: "https://feedback.example.com" })` (not `?? "https://…"`, which would ignore `MCP_FEEDBACK_DISABLED`); a server with a fallback ignores the shared variable. Either way, name the server's variable in its environment docs and in any installer's environment passthrough (agentdist `envPassthrough`, Codex `env_vars`), with `MCP_FEEDBACK_ENDPOINT` beside it.
+- **`MCP_FEEDBACK_DISABLED=1`** turns feedback off whatever is set (`feedbackEndpoint` returns undefined). Document it in the server's README.
 - **`attachContext`** is the place for the server's version and platform. Nothing from the user's files, paths, environment or hostname: it is sent off the machine.
 - The installation's token and any queued reports live in a per-user state directory (`~/Library/Application Support/mcp-feedback/<project>` on macOS, `$XDG_STATE_HOME/mcp-feedback/<project>` on Linux). When the hub cannot be reached, the tool result says the report was queued and where, and it is sent on the next start or report. A report the hub refuses is not kept.
 - Do not add `resolveIdentity` or `requireIdentity`: the hub stamps identity from each installation's token.

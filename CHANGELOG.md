@@ -4,6 +4,10 @@ Versions are those of the `mcp-feedback` npm package. The skills are not version
 
 ## Unreleased
 
+- `feedbackEndpoint({ variable, fallback? })` in `mcp-feedback/remote` reads the hub's URL from a server's own variable, then from `MCP_FEEDBACK_ENDPOINT`, so one setting serves every server on a machine; it returns undefined when neither is set or `MCP_FEEDBACK_DISABLED=1`. Servers can then keep their hub's URL out of their repository. `fallback` is a hub the server ships for every installation; a server with one ignores `MCP_FEEDBACK_ENDPOINT`. The add-feedback skill uses it, and `spec/ingest.md` recommends the same order to other implementations.
+
+## 0.8.0 (2026-11-28)
+
 - Open enrolment: a hub with `openEnrollment: true` (`ingest serve --open`, `MCP_FEEDBACK_INGEST_OPEN=1`) lets a server enrol by naming its project, `remoteStore({ endpoint, project })`, so connecting a new server needs nothing from the maintainer. `reservedProjects` keeps names, such as a host server's own, for project keys. A new hub-wide daily quota (`perHubPerDay`, 2000 by default) bounds what anyone naming new projects can add. Hubs say whether they offer it as `open_enrollment` at `/.well-known/mcp-feedback`.
 
 ## 0.7.0 (2026-11-26)

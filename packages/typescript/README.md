@@ -62,14 +62,17 @@ mcp-feedback ingest keygen --out ingest-key.json        # keep this file private
 
 ```ts
 import { registerFeedback, feedbackConfirmInstructions } from "mcp-feedback";
-import { feedbackDisabled, remoteStore } from "mcp-feedback/remote";
+import { feedbackEndpoint, remoteStore } from "mcp-feedback/remote";
 
-if (!feedbackDisabled()) {
-  const store = remoteStore({ endpoint: "https://feedback.example.com", project: "my-server" });
+const endpoint = feedbackEndpoint({ variable: "MY_SERVER_FEEDBACK_ENDPOINT" }); // + fallback: "https://…" to collect from everyone
+if (endpoint) {
+  const store = remoteStore({ endpoint, project: "my-server" });
   registerFeedback(server, { store, requireConfirmation: true, destination: "the my-server maintainers" });
   void store.start(); // renews this machine's token, sends reports that could not go last time
 }
 ```
+
+`feedbackEndpoint` reads the server's own variable, then `MCP_FEEDBACK_ENDPOINT`, which you set once for every server you run, and returns undefined (feedback off) when neither is set or `MCP_FEEDBACK_DISABLED=1`. That keeps your hub's URL out of an open-source repository. To collect from every installation instead, pass `fallback` with your hub's URL: it is used when the server's own variable is not set, and a server with a fallback ignores `MCP_FEEDBACK_ENDPOINT`, so someone else's shared setting never redirects its reports.
 
 On a hub without it, issue the server a project key once (`mcp-feedback ingest issue-key --project my-server --key ingest-key.json --issuer https://feedback.example.com`) and pass `projectKey` in place of `project`. The key is public by design: it ships in your package and can only enrol an installation. What it adds over a name is your say over which projects exist on the hub.
 

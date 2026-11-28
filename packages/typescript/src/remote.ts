@@ -89,6 +89,26 @@ export function feedbackDisabled(env: Record<string, string | undefined> = proce
   return /^(1|true|yes)$/i.test(env.MCP_FEEDBACK_DISABLED ?? "");
 }
 
+/** The ingest hub every server on a machine reports to, set once. Not the reader endpoint, which is MCP_FEEDBACK_URL. */
+export const FEEDBACK_ENDPOINT_ENV = "MCP_FEEDBACK_ENDPOINT";
+
+/**
+ * The hub to send this server's feedback to, or undefined when feedback is off. In order: `variable`
+ * (this server's own, e.g. `MY_SERVER_FEEDBACK_ENDPOINT`), then `fallback` (a hub the maintainer ships
+ * so every installation reports), then MCP_FEEDBACK_ENDPOINT. A server with a `fallback` never reads
+ * MCP_FEEDBACK_ENDPOINT: the shared variable is how someone points the servers they run that have no
+ * hub of their own, and must not redirect one that does. An empty value counts as unset, and
+ * MCP_FEEDBACK_DISABLED turns feedback off whatever is set.
+ */
+export function feedbackEndpoint(
+  options: { variable?: string; fallback?: string; env?: Record<string, string | undefined> } = {},
+): string | undefined {
+  const env = options.env ?? process.env;
+  if (feedbackDisabled(env)) return undefined;
+  const read = (name: string | undefined) => (name ? env[name]?.trim() || undefined : undefined);
+  return read(options.variable) ?? (options.fallback?.trim() || read(FEEDBACK_ENDPOINT_ENV));
+}
+
 function stateRoot(): string {
   const home = homedir();
   if (platform() === "darwin") return join(home, "Library", "Application Support", "mcp-feedback");
