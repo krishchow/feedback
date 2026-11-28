@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/agentdist@0.1.0/schema/agentdist.schema.json",
   "engine": "v1",
   "name": "mcp-feedback",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Agent feedback for MCP servers: skills for adding the mcp-feedback library to a server and updating the server's own skills to use it, for recording a project's own facts about where its feedback is read, and for reading, working through and closing out what was collected, over the mcp-feedback CLI or MCP reader tools.",
   "skills": "./skills",
   "namespace": "none",
